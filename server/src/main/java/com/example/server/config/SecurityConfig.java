@@ -7,6 +7,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.List;
+
 @Configuration
 public class SecurityConfig {
 
@@ -23,13 +25,19 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.addAllowedOrigin("http://localhost:4200"); // Angular dev server
-        configuration.addAllowedMethod("*");
-        configuration.addAllowedHeader("*");
-        configuration.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
+        CorsConfiguration cfg = new CorsConfiguration();
+        // ใช้ patterns เพื่อครอบคลุมทั้งมี/ไม่มี www และรองรับ future subdomains ได้
+        cfg.setAllowedOriginPatterns(List.of(
+                "https://chubbycharlieshop.com",
+                "https://www.chubbycharlieshop.com",
+                "http://localhost:4200"
+        ));
+        cfg.setAllowedMethods(List.of("GET","POST","PUT","DELETE","PATCH","OPTIONS"));
+        cfg.addAllowedHeader("*");
+        cfg.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
+        src.registerCorsConfiguration("/**", cfg);
+        return src;
     }
+
 }
