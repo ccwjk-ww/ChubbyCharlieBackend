@@ -1,5 +1,7 @@
 package com.example.server.service;
 
+import com.example.server.dto.StockLotSummaryDTO;
+import com.example.server.dto.SystemSummaryDTO;
 import com.example.server.entity.ChinaStock;
 import com.example.server.entity.StockBase;
 import com.example.server.entity.StockLot;
@@ -9,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -266,8 +269,35 @@ public class StockLotService {
     // Helper Methods
     // ============================================
 
+//    /**
+//     * ⭐ คำนวณยอดรวมของ StockLot จาก items ทั้งหมด
+//     */
+//    public BigDecimal calculateTotalCost(StockLot stockLot) {
+//        BigDecimal total = BigDecimal.ZERO;
+//
+//        if (stockLot.getItems() == null || stockLot.getItems().isEmpty()) {
+//            return total;
+//        }
+//
+//        for (StockBase item : stockLot.getItems()) {
+//            if (item instanceof ChinaStock) {
+//                ChinaStock china = (ChinaStock) item;
+//                if (china.getTotalBath() != null) {
+//                    total = total.add(china.getTotalBath());
+//                }
+//            } else if (item instanceof ThaiStock) {
+//                ThaiStock thai = (ThaiStock) item;
+//                BigDecimal itemTotal = thai.calculateTotalCost();
+//                if (itemTotal != null) {
+//                    total = total.add(itemTotal);
+//                }
+//            }
+//        }
+//
+//        return total;
+//    }
     /**
-     * ⭐ คำนวณยอดรวมของ StockLot จาก items ทั้งหมด
+     * ⭐ คำนวณยอดรวมของ StockLot รวมค่าส่งจากจีนมาไทย
      */
     public BigDecimal calculateTotalCost(StockLot stockLot) {
         BigDecimal total = BigDecimal.ZERO;
@@ -279,8 +309,10 @@ public class StockLotService {
         for (StockBase item : stockLot.getItems()) {
             if (item instanceof ChinaStock) {
                 ChinaStock china = (ChinaStock) item;
-                if (china.getTotalBath() != null) {
-                    total = total.add(china.getTotalBath());
+                // ⭐ ใช้ calculateTotalCost() ที่รวมค่าส่งแล้ว
+                BigDecimal itemTotal = china.calculateTotalCost();
+                if (itemTotal != null) {
+                    total = total.add(itemTotal);
                 }
             } else if (item instanceof ThaiStock) {
                 ThaiStock thai = (ThaiStock) item;
@@ -291,6 +323,121 @@ public class StockLotService {
             }
         }
 
-        return total;
+        return total.setScale(3, RoundingMode.HALF_UP);
     }
+    /**
+     * ⭐ แก้ไข: คำนวณ Total Value ให้รวม Buffer
+     */
+    @Transactional(readOnly = true)
+    public StockLotSummaryDTO getStockLotSummary(Long stockLotId) {
+        StockLot stockLot = stockLotRepository.findById(stockLotId)
+                .orElseThrow(() -> new RuntimeException("Stock Lot not found"));
+
+        StockLotSummaryDTO summary = new StockLotSummaryDTO();
+        summary.setStockLotId(stockLot.getStockLotId());
+        summary.setLotName(stockLot.getLotName());
+
+        List<StockBase> items = stockLot.getItems();
+        if (items == null || items.isEmpty()) {
+            summary.setTotalItemCount(0);
+            summary.setChinaItemCount(0);
+            summary.setThaiItemCount(0);
+            summary.setGrandTotalValue(BigDecimal.ZERO);
+            return summary;
+        }
+
+        // นับจำนวน items
+        long chinaCount = items.stream()
+                .filter(item -> item instanceof ChinaStock)
+                .count();
+        long thaiCount = items.stream()
+                .filter(item -> item instanceof ThaiStock)
+                .count();
+
+                summary.setTotalItemCount(items.size());
+                summary.setChinaItemCount((int) chinaCount);
+                summary.setThaiItemCount((int) thaiCount);
+
+        // ⭐ คำนวณ Grand Total Value (รวม Buffer)
+        BigDecimal grandTotalValue = items.stream()
+                .map(item -> {
+                    if (item instanceof ChinaStock) {
+                        ChinaStock chinaStock = (ChinaStock) item;
+                        // ใช้ calculateTotalCost() ที่รวม Buffer แล้ว
+                        return chinaStock.calculateTotalCost();
+                    } else if (item instanceof ThaiStock) {
+                        ThaiStock thaiStock = (ThaiStock) item;
+                        // ใช้ calculateTotalCost() ที่รวม Buffer แล้ว
+                        return thaiStock.calculateTotalCost();
+                    }
+                    return BigDecimal.ZERO;
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        summary.setGrandTotalValue(grandTotalValue);
+
+        return summary;
+    }
+
+    /**
+     * ⭐ แก้ไข: System Summary ให้ใช้ Grand Total
+     */
+    @Transactional(readOnly = true)
+    public SystemSummaryDTO getSystemSummary() {
+        SystemSummaryDTO summary = new SystemSummaryDTO();
+
+        // นับจำนวน Stock Lots
+        long totalLots = stockLotRepository.count();
+        summary.setTotalLots((int) totalLots);
+
+        // ดึง Stock Lots ทั้งหมด
+        List<StockLot> allLots = stockLotRepository.findAll();
+
+        int totalItems = 0;
+        int totalChinaItems = 0;
+        int totalThaiItems = 0;
+        int activeItems = 0;
+        BigDecimal totalInventoryValue = BigDecimal.ZERO;
+
+        for (StockLot lot : allLots) {
+            List<StockBase> items = lot.getItems();
+            if (items != null && !items.isEmpty()) {
+                totalItems += items.size();
+
+                for (StockBase item : items) {
+                    // นับประเภท
+                    if (item instanceof ChinaStock) {
+                        totalChinaItems++;
+                        ChinaStock chinaStock = (ChinaStock) item;
+
+                        // ⭐ ใช้ calculateTotalCost() ที่รวม Buffer
+                        totalInventoryValue = totalInventoryValue.add(chinaStock.calculateTotalCost());
+
+                        if (StockBase.StockStatus.ACTIVE.equals(chinaStock.getStatus())) {
+                            activeItems++;
+                        }
+                    } else if (item instanceof ThaiStock) {
+                        totalThaiItems++;
+                        ThaiStock thaiStock = (ThaiStock) item;
+
+                        // ⭐ ใช้ calculateTotalCost() ที่รวม Buffer
+                        totalInventoryValue = totalInventoryValue.add(thaiStock.calculateTotalCost());
+
+                        if (StockBase.StockStatus.ACTIVE.equals(thaiStock.getStatus())) {
+                            activeItems++;
+                        }
+                    }
+                }
+            }
+        }
+
+        summary.setTotalItems(totalItems);
+        summary.setTotalChinaItems(totalChinaItems);
+        summary.setTotalThaiItems(totalThaiItems);
+        summary.setActiveItems(activeItems);
+        summary.setTotalInventoryValue(totalInventoryValue);
+
+        return summary;
+    }
+
 }

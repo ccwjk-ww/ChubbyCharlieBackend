@@ -16,6 +16,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/china-stocks")
+@CrossOrigin(origins = "*")
 public class ChinaStockController {
 
     @Autowired
@@ -130,11 +131,26 @@ public class ChinaStockController {
         }
     }
 
-    // Distribute shipping costs for a lot
+    // ⭐ ลบ method นี้ออก - ไม่ใช้แล้ว
+    // @PostMapping("/lot/{stockLotId}/distribute-shipping")
+    // public ResponseEntity<List<ChinaStockDTO>> distributeShippingCosts(@PathVariable Long stockLotId) { ... }
+
+    /**
+     * ⭐ Distribute shipping costs with amount
+     * POST /api/china-stocks/lot/{stockLotId}/distribute-shipping
+     * Body: { "totalShipping": 1000.50 }
+     */
     @PostMapping("/lot/{stockLotId}/distribute-shipping")
-    public ResponseEntity<List<ChinaStockDTO>> distributeShippingCosts(@PathVariable Long stockLotId) {
+    public ResponseEntity<List<ChinaStockDTO>> distributeShippingCostsWithAmount(
+            @PathVariable Long stockLotId,
+            @RequestBody Map<String, BigDecimal> shippingData) {
         try {
-            List<ChinaStock> updatedStocks = chinaStockService.distributeShippingCosts(stockLotId);
+            BigDecimal totalShipping = shippingData.get("totalShipping");
+            if (totalShipping == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            List<ChinaStock> updatedStocks = chinaStockService.distributeShippingCosts(stockLotId, totalShipping);
             return ResponseEntity.ok(stockMapper.toChinaStockDTOList(updatedStocks));
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
@@ -149,24 +165,6 @@ public class ChinaStockController {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
-        }
-    }
-    // เพิ่ม endpoint ใหม่ใน ChinaStockController
-
-    @PostMapping("/lot/{stockLotId}/distribute-shipping-with-amount")
-    public ResponseEntity<List<ChinaStockDTO>> distributeShippingCostsWithAmount(
-            @PathVariable Long stockLotId,
-            @RequestBody Map<String, BigDecimal> shippingData) {
-        try {
-            BigDecimal totalShipping = shippingData.get("totalShipping");
-            if (totalShipping == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
-            List<ChinaStock> updatedStocks = chinaStockService.distributeShippingCosts(stockLotId, totalShipping);
-            return ResponseEntity.ok(stockMapper.toChinaStockDTOList(updatedStocks));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
         }
     }
 }

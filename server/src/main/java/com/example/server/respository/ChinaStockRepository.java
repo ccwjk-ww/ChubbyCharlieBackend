@@ -19,8 +19,8 @@ public interface ChinaStockRepository extends JpaRepository<ChinaStock, Long> {
     @Query("SELECT c FROM ChinaStock c WHERE c.quantity >= :minQuantity")
     List<ChinaStock> findByQuantityGreaterThanEqual(@Param("minQuantity") Integer minQuantity);
 
-    @Query("SELECT SUM(c.totalBath) FROM ChinaStock c WHERE c.stockLotId = :stockLotId")
-    BigDecimal getTotalValueByLot(@Param("stockLotId") Long stockLotId);
+//    @Query("SELECT SUM(c.totalBath) FROM ChinaStock c WHERE c.stockLotId = :stockLotId")
+//    BigDecimal getTotalValueByLot(@Param("stockLotId") Long stockLotId);
 
     @Query("SELECT c FROM ChinaStock c WHERE c.name LIKE %:keyword% OR c.shopURL LIKE %:keyword%")
     List<ChinaStock> searchByKeyword(@Param("keyword") String keyword);

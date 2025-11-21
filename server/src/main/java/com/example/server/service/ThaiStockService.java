@@ -46,7 +46,7 @@ public class ThaiStockService {
         ThaiStock thaiStock = thaiStockRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Thai stock not found with id: " + id));
 
-        // Update fields - ใช้ stockLotId แทน stockLot
+        // Update fields
         updateThaiStockFields(thaiStock, thaiStockDetails);
         validateThaiStock(thaiStock);
 
@@ -95,6 +95,11 @@ public class ThaiStockService {
         if (details.getQuantity() != null) thaiStock.setQuantity(details.getQuantity());
         if (details.getPriceTotal() != null) thaiStock.setPriceTotal(details.getPriceTotal());
         if (details.getShippingCost() != null) thaiStock.setShippingCost(details.getShippingCost());
+
+        // ⭐ เพิ่ม buffer fields
+        if (details.getIncludeBuffer() != null) thaiStock.setIncludeBuffer(details.getIncludeBuffer());
+        if (details.getBufferPercentage() != null) thaiStock.setBufferPercentage(details.getBufferPercentage());
+
         if (details.getStatus() != null) thaiStock.setStatus(details.getStatus());
         if (details.getStockLotId() != null) thaiStock.setStockLotId(details.getStockLotId());
     }

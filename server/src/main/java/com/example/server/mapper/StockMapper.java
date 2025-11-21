@@ -17,10 +17,9 @@ public class StockMapper {
         dto.setLotName(stockLot.getLotName());
         dto.setImportDate(stockLot.getImportDate());
         dto.setArrivalDate(stockLot.getArrivalDate());
-        // ลบ totalShippingBath mapping ออกแล้ว
         dto.setStatus(stockLot.getStatus() != null ? stockLot.getStatus().name() : null);
 
-        // Convert items to simple DTOs (without circular reference)
+        // Convert items to simple DTOs
         if (stockLot.getItems() != null) {
             dto.setItems(stockLot.getItems().stream()
                     .map(this::toStockItemDTO)
@@ -40,19 +39,23 @@ public class StockMapper {
         dto.setShopURL(stockBase.getShopURL());
         dto.setStatus(stockBase.getStatus() != null ? stockBase.getStatus().name() : null);
 
-        // Determine item type and set basic info
         if (stockBase instanceof ChinaStock) {
             ChinaStock china = (ChinaStock) stockBase;
             dto.setItemType("CHINA");
             dto.setQuantity(china.getQuantity());
-            dto.setTotalValue(china.getTotalBath());
-            dto.setFinalPrice(china.getFinalPricePerPair());
+
+            // ⭐ ใช้ Grand Total (รวม Buffer แล้ว)
+            dto.setTotalValue(china.calculateTotalCost());
+            dto.setFinalPrice(china.calculateFinalPrice());
+
         } else if (stockBase instanceof ThaiStock) {
             ThaiStock thai = (ThaiStock) stockBase;
             dto.setItemType("THAI");
             dto.setQuantity(thai.getQuantity());
+
+            // ⭐ ใช้ Grand Total (รวม Buffer แล้ว)
             dto.setTotalValue(thai.calculateTotalCost());
-            dto.setFinalPrice(thai.getPricePerUnitWithShipping());
+            dto.setFinalPrice(thai.calculateFinalPrice());
         }
 
         return dto;
@@ -68,22 +71,27 @@ public class StockMapper {
         dto.setShopURL(chinaStock.getShopURL());
         dto.setStatus(chinaStock.getStatus() != null ? chinaStock.getStatus().name() : null);
 
-        // China-specific fields
         dto.setUnitPriceYuan(chinaStock.getUnitPriceYuan());
         dto.setQuantity(chinaStock.getQuantity());
         dto.setTotalValueYuan(chinaStock.getTotalValueYuan());
         dto.setShippingWithinChinaYuan(chinaStock.getShippingWithinChinaYuan());
         dto.setTotalYuan(chinaStock.getTotalYuan());
+
+        // ⭐ totalBath = Grand Total
         dto.setTotalBath(chinaStock.getTotalBath());
+
         dto.setPricePerUnitBath(chinaStock.getPricePerUnitBath());
         dto.setShippingChinaToThaiBath(chinaStock.getShippingChinaToThaiBath());
-        dto.setAvgShippingPerPair(chinaStock.getAvgShippingPerPair());
-        dto.setFinalPricePerPair(chinaStock.getFinalPricePerPair());
-        dto.setExchangeRate(chinaStock.getExchangeRate());
 
-        // StockLot info (เฉพาะ ID, ไม่มี name)
+        // ⭐ finalPricePerPair = Grand Total / Quantity
+        dto.setFinalPricePerPair(chinaStock.getFinalPricePerPair());
+
+        dto.setExchangeRate(chinaStock.getExchangeRate());
+        dto.setIncludeBuffer(chinaStock.getIncludeBuffer());
+        dto.setBufferPercentage(chinaStock.getBufferPercentage());
+
         dto.setStockLotId(chinaStock.getStockLotId());
-        dto.setLotName(null); // ไม่ set lotName หรือ set เป็น null
+        dto.setLotName(null);
 
         return dto;
     }
@@ -98,16 +106,22 @@ public class StockMapper {
         dto.setShopURL(thaiStock.getShopURL());
         dto.setStatus(thaiStock.getStatus() != null ? thaiStock.getStatus().name() : null);
 
-        // Thai-specific fields
         dto.setQuantity(thaiStock.getQuantity());
         dto.setPriceTotal(thaiStock.getPriceTotal());
         dto.setShippingCost(thaiStock.getShippingCost());
         dto.setPricePerUnit(thaiStock.getPricePerUnit());
+
+        // ⭐ pricePerUnitWithShipping = Final Price/Unit
         dto.setPricePerUnitWithShipping(thaiStock.getPricePerUnitWithShipping());
 
-        // StockLot info (เฉพาะ ID, ไม่มี name)
+        // ⭐ totalCost = Grand Total
+        dto.setTotalCost(thaiStock.calculateTotalCost());
+
+        dto.setIncludeBuffer(thaiStock.getIncludeBuffer());
+        dto.setBufferPercentage(thaiStock.getBufferPercentage());
+
         dto.setStockLotId(thaiStock.getStockLotId());
-        dto.setLotName(null); // ไม่ set lotName หรือ set เป็น null
+        dto.setLotName(null);
 
         return dto;
     }

@@ -18,8 +18,11 @@ public class ThaiStockDTO {
     private BigDecimal shippingCost;
     private BigDecimal pricePerUnit;
     private BigDecimal pricePerUnitWithShipping;
-
+    // ⭐ เพิ่ม buffer fields
+    private BigDecimal bufferPercentage;
+    private Boolean includeBuffer;
     // StockLot info (without circular reference)
     private Long stockLotId;
     private String lotName;
+    private BigDecimal totalCost;
 }
