@@ -16,7 +16,11 @@ import java.util.Optional;
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
     List<OrderItem> findByOrderOrderId(Long orderId);
-
+    /**
+     * ⭐ เพิ่ม method สำหรับ SystemDataService
+     * ใช้สำหรับดึง OrderItems จาก Order object
+     */
+    List<OrderItem> findByOrder(Order order);
     List<OrderItem> findByProductProductId(Long productId);
 
     List<OrderItem> findByStockDeductionStatus(OrderItem.StockDeductionStatus status);

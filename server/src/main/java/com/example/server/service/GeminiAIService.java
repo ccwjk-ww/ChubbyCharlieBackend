@@ -12,7 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -110,7 +111,7 @@ public class GeminiAIService {
     }
 
     /**
-     * เรียก Gemini API
+     * ⭐ เรียก Gemini API (รองรับทั้ง Text-Only และ Text+Image)
      */
     private String callGeminiAPI(String prompt, String base64Image) {
         try {
@@ -125,13 +126,19 @@ public class GeminiAIService {
             textPart.addProperty("text", prompt);
             parts.add(textPart);
 
-            // เพิ่ม image
-            JsonObject imagePart = new JsonObject();
-            JsonObject inlineData = new JsonObject();
-            inlineData.addProperty("mime_type", "image/png");
-            inlineData.addProperty("data", base64Image);
-            imagePart.add("inline_data", inlineData);
-            parts.add(imagePart);
+            // ⭐ เพิ่ม image เฉพาะเมื่อมี (สำหรับ PDF เท่านั้น)
+            if (base64Image != null && !base64Image.trim().isEmpty()) {
+                JsonObject imagePart = new JsonObject();
+                JsonObject inlineData = new JsonObject();
+                inlineData.addProperty("mime_type", "image/png");
+                inlineData.addProperty("data", base64Image);
+                imagePart.add("inline_data", inlineData);
+                parts.add(imagePart);
+
+                System.out.println("📷 Request type: TEXT + IMAGE (PDF)");
+            } else {
+                System.out.println("📝 Request type: TEXT ONLY (Excel)");
+            }
 
             content.add("parts", parts);
             contents.add(content);
@@ -140,11 +147,11 @@ public class GeminiAIService {
             // เพิ่ม generation config
             JsonObject generationConfig = new JsonObject();
             generationConfig.addProperty("temperature", 0.1); // ต่ำเพื่อความแม่นยำ
-            generationConfig.addProperty("maxOutputTokens", 4096);
+            generationConfig.addProperty("maxOutputTokens", 8192); // ⭐ เพิ่มเป็น 8192 สำหรับ Excel
             requestBody.add("generationConfig", generationConfig);
 
             System.out.println("📤 Sending request to Gemini API...");
-            System.out.println("Request body: " + requestBody.toString());
+            System.out.println("Prompt length: " + prompt.length() + " characters");
 
             // เรียก API
             String response = webClient.post()
@@ -156,7 +163,6 @@ public class GeminiAIService {
                     .block();
 
             System.out.println("📥 Received response from Gemini API");
-            System.out.println("Response: " + response);
 
             // Parse response
             return extractTextFromGeminiResponse(response);
@@ -199,6 +205,184 @@ public class GeminiAIService {
         } catch (Exception e) {
             System.err.println("❌ Error parsing Gemini response: " + e.getMessage());
             throw new RuntimeException("Failed to parse Gemini response", e);
+        }
+    }
+
+    /**
+     * ⭐ Analyze TikTok Excel using Gemini AI (TEXT ONLY)
+     */
+    public String analyzeTiktokExcelWithGemini(MultipartFile file) throws IOException {
+
+        System.out.println("========== Starting Gemini TikTok Excel Analysis ==========");
+        System.out.println("File: " + file.getOriginalFilename());
+        System.out.println("Size: " + file.getSize() + " bytes");
+
+        // 1. อ่าน Excel และแปลงเป็น Text
+        String excelContent = convertExcelToText(file);
+
+        System.out.println("Excel content length: " + excelContent.length() + " characters");
+
+        // 2. สร้าง Prompt สำหรับ Gemini
+        String prompt = createPromptForTiktokExcelExtraction(excelContent);
+
+        System.out.println("Prompt length: " + prompt.length() + " characters");
+
+        // 3. ⭐ เรียก Gemini API โดยไม่ส่ง image (ส่ง null)
+        String response = callGeminiAPI(prompt, null);
+
+        System.out.println("========== Gemini Analysis Complete ==========");
+
+        return response;
+    }
+
+    /**
+     * แปลง Excel เป็น Text Content สำหรับ Gemini
+     */
+    private String convertExcelToText(MultipartFile file) throws IOException {
+        StringBuilder content = new StringBuilder();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+            Sheet sheet = workbook.getSheet("Order details");
+
+            if (sheet == null) {
+                sheet = workbook.getSheetAt(0);
+            }
+
+            // อ่าน Header Row
+            Row headerRow = sheet.getRow(0);
+            if (headerRow != null) {
+                content.append("HEADERS:\n");
+                for (Cell cell : headerRow) {
+                    content.append(getCellValueAsString(cell)).append("\t");
+                }
+                content.append("\n\n");
+            }
+
+            // อ่าน Data Rows (จำกัด 20 แถวแรก เพื่อไม่ให้ข้อมูลยาวเกินไป)
+            content.append("DATA:\n");
+            int maxRows = Math.min(sheet.getLastRowNum(), 20);
+
+            for (int i = 1; i <= maxRows; i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                content.append("Row ").append(i).append(": ");
+                for (int j = 0; j < headerRow.getLastCellNum(); j++) {
+                    Cell cell = row.getCell(j);
+                    content.append(getCellValueAsString(cell)).append("\t");
+                }
+                content.append("\n");
+            }
+        }
+
+        return content.toString();
+    }
+
+    /**
+     * ⭐ สร้าง Prompt สำหรับ Gemini AI ให้วิเคราะห์ TikTok Excel (แก้ไขใหม่)
+     */
+    private String createPromptForTiktokExcelExtraction(String excelContent) {
+        return """
+        You are an expert in extracting data from TikTok Shop Excel files.
+        
+        Analyze this Excel data and extract ALL orders with complete information in JSON format.
+        
+        Excel Data:
+        """ + excelContent + """
+        
+        
+        Extract these fields for EACH order:
+        - orderNumber: Column 0 (Order/adjustment ID) - This is the PO number
+        - orderCreatedTime: Column 2 (Order created time)
+        - orderSettledTime: Column 3 (Order settled time)
+        - totalRevenue: Column 6 (Total revenue - ยอดรวมก่อนหัก)
+        - totalFees: Column 13 (Total fees - ค่าธรรมเนียม/ส่วนลด - usually negative)
+        - totalSettlementAmount: Column 5 (Total settlement amount - ยอดสุทธิ)
+        - items: From Column 52 (Shopping center items) - Format: "SKU * Quantity;"
+        
+        IMPORTANT:
+        - Each row is ONE order (PO)
+        - Extract ALL rows that have Order ID
+        - totalFees is usually NEGATIVE (fees/discount)
+        - Convert totalFees to POSITIVE for discount display
+        - Items format: "1729997094462589879 * 3; 1829997094462589880 * 2;"
+        
+        Output format for MULTIPLE orders:
+        {
+          "orders": [
+            {
+              "orderNumber": "580012697098291059",
+              "orderCreatedTime": "2025-08-16 10:30:00",
+              "orderSettledTime": "2025-08-21 14:00:00",
+              "totalRevenue": "207.00",
+              "totalFees": "-39.58",
+              "totalSettlementAmount": "167.42",
+              "items": [
+                {
+                  "shoppingCenterItem": "1729997094462589879 * 3",
+                  "productName": "Product Name (optional)"
+                }
+              ]
+            },
+            {
+              "orderNumber": "580012697098291060",
+              "orderCreatedTime": "2025-08-16 11:00:00",
+              "orderSettledTime": "2025-08-21 15:00:00",
+              "totalRevenue": "300.00",
+              "totalFees": "-50.00",
+              "totalSettlementAmount": "250.00",
+              "items": [
+                {
+                  "shoppingCenterItem": "1829997094462589880 * 2"
+                }
+              ]
+            }
+          ]
+        }
+        
+        For single order, use the same format but with one order in array.
+        
+        Rules:
+        - Dates: yyyy-MM-dd HH:mm:ss or yyyy/MM/dd
+        - Prices: 2 decimal places, as strings
+        - Convert negative totalFees to positive if needed
+        - Return JSON ONLY (no markdown, no explanations)
+        - Include ALL orders found in the Excel
+        """;
+    }
+
+    /**
+     * Get Cell value as String
+     */
+    private String getCellValueAsString(Cell cell) {
+        if (cell == null) {
+            return "";
+        }
+
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+            case NUMERIC:
+                if (DateUtil.isCellDateFormatted(cell)) {
+                    return cell.getDateCellValue().toString();
+                } else {
+                    double numValue = cell.getNumericCellValue();
+                    // ถ้าเป็นเลขจำนวนเต็ม ไม่แสดงทศนิยม
+                    if (numValue == (long) numValue) {
+                        return String.valueOf((long) numValue);
+                    }
+                    return String.valueOf(numValue);
+                }
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            case FORMULA:
+                try {
+                    return String.valueOf(cell.getNumericCellValue());
+                } catch (Exception e) {
+                    return cell.getCellFormula();
+                }
+            default:
+                return "";
         }
     }
 }

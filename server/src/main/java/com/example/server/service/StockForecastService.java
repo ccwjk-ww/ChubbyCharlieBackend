@@ -2,6 +2,7 @@ package com.example.server.service;
 
 import com.example.server.entity.*;
 import com.example.server.respository.*;
+import com.google.gson.Gson;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,8 @@ public class StockForecastService {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private GeminiStockForecastService geminiStockForecastService;
     // Configuration defaults
     private static final int DEFAULT_SAFETY_STOCK_DAYS = 7;
     private static final int DEFAULT_LEAD_TIME_DAYS = 14;
@@ -336,7 +339,199 @@ public class StockForecastService {
         stockForecastRepository.deleteOldForecasts(cutoffDate);
         System.out.println("🧹 ลบ Stock Forecast เก่าที่เกิน 30 วันแล้ว");
     }
+    /**
+     * ⭐ คำนวณ Stock Forecast โดยใช้ AI
+     */
+    @Transactional
+    public StockForecast calculateStockForecastWithAI(Long stockItemId, int analysisBaseDays) {
+        // 1. คำนวณ basic forecast ตามเดิม
+        StockForecast basicForecast = calculateStockForecast(stockItemId, analysisBaseDays);
 
+        try {
+            // 2. เตรียมข้อมูลสำหรับ AI
+            GeminiStockForecastService.StockForecastAnalysisRequest aiRequest =
+                    prepareAIAnalysisRequest(basicForecast, stockItemId, analysisBaseDays);
+
+            // 3. เรียก Gemini AI
+            System.out.println("🤖 Analyzing with Gemini AI: " + basicForecast.getStockItemName());
+            String aiResponseJson = geminiStockForecastService.analyzeStockForecast(aiRequest);
+
+            // 4. Parse AI response
+            GeminiAIForecastResult aiResult = parseAIResponse(aiResponseJson);
+
+            // 5. Apply AI insights to forecast
+            applyAIInsights(basicForecast, aiResult);
+
+            // 6. บันทึก
+            return stockForecastRepository.save(basicForecast);
+
+        } catch (Exception e) {
+            System.err.println("⚠️ AI analysis failed, using basic forecast: " + e.getMessage());
+            // ถ้า AI ล้มเหลว ให้ใช้ basic forecast
+            return basicForecast;
+        }
+    }
+
+    /**
+     * เตรียมข้อมูลสำหรับ AI
+     */
+    private GeminiStockForecastService.StockForecastAnalysisRequest prepareAIAnalysisRequest(
+            StockForecast forecast, Long stockItemId, int analysisBaseDays) {
+
+        GeminiStockForecastService.StockForecastAnalysisRequest request =
+                new GeminiStockForecastService.StockForecastAnalysisRequest();
+
+        request.setStockItemName(forecast.getStockItemName());
+        request.setStockType(forecast.getStockType());
+        request.setCurrentStock(forecast.getCurrentStock());
+        request.setCurrentStockValue(forecast.getCurrentStockValue());
+        request.setAverageDailyUsage(forecast.getAverageDailyUsage());
+        request.setAverageWeeklyUsage(forecast.getAverageWeeklyUsage());
+        request.setAverageMonthlyUsage(forecast.getAverageMonthlyUsage());
+        request.setSafetyStockDays(forecast.getSafetyStockDays());
+        request.setLeadTimeDays(forecast.getLeadTimeDays());
+        request.setAnalysisBaseDays(analysisBaseDays);
+
+        // ดึงข้อมูลการใช้งานรายวัน
+        List<GeminiStockForecastService.StockForecastAnalysisRequest.UsageHistoryPoint> history =
+                getUsageHistory(stockItemId, analysisBaseDays);
+        request.setUsageHistory(history);
+
+        return request;
+    }
+
+    /**
+     * ดึง Usage History
+     */
+    private List<GeminiStockForecastService.StockForecastAnalysisRequest.UsageHistoryPoint>
+    getUsageHistory(Long stockItemId, int days) {
+
+        LocalDateTime startDate = LocalDateTime.now().minusDays(days);
+        StockUsageAnalysis analysis = analyzeStockUsage(stockItemId, startDate);
+
+        return analysis.getDailyUsage().entrySet().stream()
+                .map(entry -> {
+                    var point = new GeminiStockForecastService.StockForecastAnalysisRequest.UsageHistoryPoint();
+                    point.setDate(entry.getKey().toLocalDate().toString());
+                    point.setQuantity(entry.getValue());
+                    return point;
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Parse AI Response
+     */
+    private GeminiAIForecastResult parseAIResponse(String jsonResponse) {
+        try {
+            Gson gson = new Gson();
+            return gson.fromJson(jsonResponse, GeminiAIForecastResult.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse AI response", e);
+        }
+    }
+
+    /**
+     * Apply AI Insights
+     */
+    private void applyAIInsights(StockForecast forecast, GeminiAIForecastResult aiResult) {
+        // อัพเดทค่าที่ AI แนะนำ
+        if (aiResult.getPredictedDailyUsage() != null && aiResult.getPredictedDailyUsage() > 0) {
+            forecast.setAverageDailyUsage(aiResult.getPredictedDailyUsage());
+            forecast.setAverageWeeklyUsage(aiResult.getPredictedDailyUsage() * 7);
+            forecast.setAverageMonthlyUsage(aiResult.getPredictedDailyUsage() * 30);
+        }
+
+        if (aiResult.getRecommendedOrderQuantity() != null && aiResult.getRecommendedOrderQuantity() > 0) {
+            forecast.setRecommendedOrderQuantity(aiResult.getRecommendedOrderQuantity());
+        }
+
+        if (aiResult.getUrgencyLevel() != null) {
+            try {
+                StockForecast.UrgencyLevel level = StockForecast.UrgencyLevel.valueOf(
+                        aiResult.getUrgencyLevel().toUpperCase());
+                forecast.setUrgencyLevel(level);
+            } catch (Exception e) {
+                // ใช้ค่าเดิม
+            }
+        }
+
+        // สร้าง recommendations ใหม่ที่รวม AI insights
+        StringBuilder recommendations = new StringBuilder();
+        recommendations.append("🤖 AI Analysis\n");
+        recommendations.append("━━━━━━━━━━━━━━━━━━━━\n");
+
+        if (aiResult.getAnalysis() != null) {
+            recommendations.append("📊 ").append(aiResult.getAnalysis()).append("\n\n");
+        }
+
+        if (aiResult.getTrend() != null) {
+            recommendations.append("📈 แนวโน้ม: ").append(aiResult.getTrend())
+                    .append(" (Confidence: ").append(aiResult.getTrendConfidence()).append("%)\n\n");
+        }
+
+        if (aiResult.getUrgencyReason() != null) {
+            recommendations.append("⚠️ ").append(aiResult.getUrgencyReason()).append("\n\n");
+        }
+
+        if (aiResult.getRecommendations() != null && !aiResult.getRecommendations().isEmpty()) {
+            recommendations.append("💡 คำแนะนำ:\n");
+            aiResult.getRecommendations().forEach(rec ->
+                    recommendations.append("  • ").append(rec).append("\n"));
+            recommendations.append("\n");
+        }
+
+        if (aiResult.getRiskFactors() != null && !aiResult.getRiskFactors().isEmpty()) {
+            recommendations.append("⚠️ ปัจจัยเสี่ยง:\n");
+            aiResult.getRiskFactors().forEach(risk ->
+                    recommendations.append("  • ").append(risk).append("\n"));
+            recommendations.append("\n");
+        }
+
+        if (aiResult.getActionItems() != null && !aiResult.getActionItems().isEmpty()) {
+            recommendations.append("✅ แผนปฏิบัติการ:\n");
+            aiResult.getActionItems().forEach(action ->
+                    recommendations.append("  [").append(action.getPriority()).append("] ")
+                            .append(action.getAction())
+                            .append(" (").append(action.getTimeline()).append(")\n"));
+        }
+
+        forecast.setRecommendations(recommendations.toString());
+
+        // คำนวณ days until stock out ใหม่ตาม AI prediction
+        if (aiResult.getPredictedDailyUsage() != null && aiResult.getPredictedDailyUsage() > 0) {
+            int daysUntilStockOut = forecast.getCurrentStock() / aiResult.getPredictedDailyUsage();
+            forecast.setDaysUntilStockOut(daysUntilStockOut);
+            forecast.setEstimatedStockOutDate(LocalDateTime.now().plusDays(daysUntilStockOut));
+        }
+    }
+
+    /**
+     * ⭐ AI Result DTO
+     */
+    @lombok.Data
+    private static class GeminiAIForecastResult {
+        private String analysis;
+        private String trend; // INCREASING, STABLE, DECREASING
+        private Integer trendConfidence;
+        private String seasonalPattern;
+        private Integer predictedDailyUsage;
+        private Integer recommendedOrderQuantity;
+        private String urgencyLevel;
+        private String urgencyReason;
+        private Integer optimalReorderPoint;
+        private List<String> riskFactors;
+        private List<String> recommendations;
+        private String costImpact;
+        private List<ActionItem> actionItems;
+
+        @lombok.Data
+        public static class ActionItem {
+            private String priority;
+            private String action;
+            private String timeline;
+        }
+    }
     /**
      * ✅ Helper Class สำหรับเก็บผลการวิเคราะห์
      */

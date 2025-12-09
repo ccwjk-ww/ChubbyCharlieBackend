@@ -2,8 +2,10 @@ package com.example.server.service;
 
 import com.example.server.entity.ThaiStock;
 import com.example.server.respository.ThaiStockRepository;
+import com.example.server.respository.StockForecastRepository; // ⭐ เพิ่ม
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // ⭐ เพิ่ม
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +15,10 @@ public class ThaiStockService {
 
     @Autowired
     private ThaiStockRepository thaiStockRepository;
+
+    // ⭐ เพิ่ม
+    @Autowired
+    private StockForecastRepository stockForecastRepository;
 
     public List<ThaiStock> getAllThaiStocks() {
         return thaiStockRepository.findAll();
@@ -33,12 +39,10 @@ public class ThaiStockService {
     public ThaiStock createThaiStock(ThaiStock thaiStock) {
         validateThaiStock(thaiStock);
 
-        // Set default status
         if (thaiStock.getStatus() == null) {
             thaiStock.setStatus(ThaiStock.StockStatus.ACTIVE);
         }
 
-        // Auto-calculations will be handled by @PrePersist
         return thaiStockRepository.save(thaiStock);
     }
 
@@ -46,11 +50,9 @@ public class ThaiStockService {
         ThaiStock thaiStock = thaiStockRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Thai stock not found with id: " + id));
 
-        // Update fields
         updateThaiStockFields(thaiStock, thaiStockDetails);
         validateThaiStock(thaiStock);
 
-        // Auto-calculations will be handled by @PreUpdate
         return thaiStockRepository.save(thaiStock);
     }
 
@@ -62,8 +64,35 @@ public class ThaiStockService {
         return thaiStockRepository.save(thaiStock);
     }
 
+    /**
+     * ⭐ แก้ไข: ลบ forecasts ก่อนลบ stock
+     */
+    @Transactional
     public void deleteThaiStock(Long id) {
-        thaiStockRepository.deleteById(id);
+        // 1. ตรวจสอบว่ามี stock อยู่จริง
+        ThaiStock stock = thaiStockRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Thai stock not found with id: " + id));
+
+        try {
+            // 2. ลบ forecasts ที่เกี่ยวข้องก่อน
+            int deletedForecasts = stockForecastRepository.deleteByStockItemStockItemId(id);
+            if (deletedForecasts > 0) {
+                System.out.println("🗑️ Deleted " + deletedForecasts + " forecast(s) for Thai Stock ID: " + id);
+            }
+
+            // 3. Flush เพื่อให้แน่ใจว่าลบ forecasts แล้ว
+            stockForecastRepository.flush();
+
+            // 4. ลบ stock
+            thaiStockRepository.delete(stock);
+            thaiStockRepository.flush();
+
+            System.out.println("✅ Successfully deleted Thai Stock ID: " + id);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error deleting Thai Stock ID " + id + ": " + e.getMessage());
+            throw new RuntimeException("Failed to delete Thai stock: " + e.getMessage(), e);
+        }
     }
 
     public List<ThaiStock> searchThaiStocks(String keyword) {
@@ -71,7 +100,11 @@ public class ThaiStockService {
     }
 
     public BigDecimal getTotalValueByLot(Long stockLotId) {
-        return thaiStockRepository.getTotalValueByLot(stockLotId);
+        List<ThaiStock> stocks = getThaiStocksByLot(stockLotId);
+
+        return stocks.stream()
+                .map(ThaiStock::calculateTotalCost)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private void validateThaiStock(ThaiStock thaiStock) {
@@ -84,9 +117,6 @@ public class ThaiStockService {
         if (thaiStock.getQuantity() == null || thaiStock.getQuantity() < 0) {
             throw new IllegalArgumentException("Quantity must be greater than or equal to 0");
         }
-        if (thaiStock.getShippingCost() == null) {
-            thaiStock.setShippingCost(BigDecimal.ZERO);
-        }
     }
 
     private void updateThaiStockFields(ThaiStock thaiStock, ThaiStock details) {
@@ -95,11 +125,8 @@ public class ThaiStockService {
         if (details.getQuantity() != null) thaiStock.setQuantity(details.getQuantity());
         if (details.getPriceTotal() != null) thaiStock.setPriceTotal(details.getPriceTotal());
         if (details.getShippingCost() != null) thaiStock.setShippingCost(details.getShippingCost());
-
-        // ⭐ เพิ่ม buffer fields
         if (details.getIncludeBuffer() != null) thaiStock.setIncludeBuffer(details.getIncludeBuffer());
         if (details.getBufferPercentage() != null) thaiStock.setBufferPercentage(details.getBufferPercentage());
-
         if (details.getStatus() != null) thaiStock.setStatus(details.getStatus());
         if (details.getStockLotId() != null) thaiStock.setStockLotId(details.getStockLotId());
     }

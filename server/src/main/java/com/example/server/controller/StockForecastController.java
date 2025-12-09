@@ -1,16 +1,18 @@
 package com.example.server.controller;
 
 import com.example.server.dto.*;
+import com.example.server.entity.StockBase;
 import com.example.server.entity.StockForecast;
 import com.example.server.mapper.StockForecastMapper;
+import com.example.server.respository.StockBaseRepository;
 import com.example.server.service.StockForecastService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/stock-forecast")
@@ -22,7 +24,8 @@ public class StockForecastController {
 
     @Autowired
     private StockForecastMapper stockForecastMapper;
-
+    @Autowired
+    private StockBaseRepository stockBaseRepository;
     // ============================================
     // การคำนวณ Forecast
     // ============================================
@@ -277,5 +280,105 @@ public class StockForecastController {
         report.put("summary", summary);
 
         return ResponseEntity.ok(report);
+    }
+    /**
+     * ⭐ คำนวณ Forecast ด้วย AI
+     */
+    @PostMapping("/calculate-ai/{stockItemId}")
+    public ResponseEntity<?> calculateStockForecastWithAI(
+            @PathVariable Long stockItemId,
+            @RequestParam(defaultValue = "90") int analysisBaseDays) {
+        try {
+            StockForecast forecast = stockForecastService.calculateStockForecastWithAI(
+                    stockItemId, analysisBaseDays);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "🤖 คำนวณ Stock Forecast ด้วย AI สำเร็จ",
+                    "forecast", stockForecastMapper.toStockForecastDTO(forecast),
+                    "powered_by", "Google Gemini AI"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "เกิดข้อผิดพลาด: " + e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * ⭐ คำนวณ Forecast ทั้งหมดด้วย AI
+     */
+    @PostMapping("/calculate-all-ai")
+    public ResponseEntity<?> calculateAllForecastsWithAI(
+            @RequestParam(defaultValue = "90") int analysisBaseDays) {
+        try {
+            List<StockBase> allStockItems = stockBaseRepository.findAll();
+            List<StockForecast> forecasts = new ArrayList<>();
+
+            int successCount = 0;
+            int errorCount = 0;
+
+            for (StockBase stockItem : allStockItems) {
+                try {
+                    StockForecast forecast = stockForecastService.calculateStockForecastWithAI(
+                            stockItem.getStockItemId(), analysisBaseDays);
+                    forecasts.add(forecast);
+                    successCount++;
+                } catch (Exception e) {
+                    errorCount++;
+                    System.err.println("❌ Error for Stock ID " + stockItem.getStockItemId() + ": " + e.getMessage());
+                }
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "🤖 คำนวณ Stock Forecast ด้วย AI เสร็จสิ้น",
+                    "totalItems", allStockItems.size(),
+                    "successCount", successCount,
+                    "errorCount", errorCount,
+                    "analysisBaseDays", analysisBaseDays,
+                    "forecasts", stockForecastMapper.toStockForecastDTOList(forecasts),
+                    "powered_by", "Google Gemini AI"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "เกิดข้อผิดพลาด: " + e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * ⭐ ดึงคำแนะนำการสั่งซื้อแบบอัจฉริยะ
+     */
+    @GetMapping("/ai-recommendations")
+    public ResponseEntity<?> getAIOrderRecommendations() {
+        try {
+            // ดึง forecasts ที่มี AI analysis
+            List<StockForecast> urgentItems = stockForecastService.getUrgentStockItems();
+
+            Map<String, Object> recommendations = new HashMap<>();
+            recommendations.put("urgentCount", urgentItems.size());
+            recommendations.put("urgentItems", stockForecastMapper.toStockForecastDTOList(urgentItems));
+
+            // คำนวณงบประมาณที่ต้องการ
+            BigDecimal totalBudget = urgentItems.stream()
+                    .map(StockForecast::getEstimatedOrderCost)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            recommendations.put("totalBudgetNeeded", totalBudget);
+            recommendations.put("generatedAt", LocalDateTime.now());
+            recommendations.put("powered_by", "Google Gemini AI");
+
+            return ResponseEntity.ok(recommendations);
+
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "เกิดข้อผิดพลาด: " + e.getMessage()
+            ));
+        }
     }
 }

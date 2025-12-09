@@ -42,18 +42,16 @@ public class StockMapper {
         if (stockBase instanceof ChinaStock) {
             ChinaStock china = (ChinaStock) stockBase;
             dto.setItemType("CHINA");
-            dto.setQuantity(china.getQuantity());
+            dto.setQuantity(china.getCurrentQuantity()); // ⭐ ใช้ currentQuantity
 
-            // ⭐ ใช้ Grand Total (รวม Buffer แล้ว)
             dto.setTotalValue(china.calculateTotalCost());
             dto.setFinalPrice(china.calculateFinalPrice());
 
         } else if (stockBase instanceof ThaiStock) {
             ThaiStock thai = (ThaiStock) stockBase;
             dto.setItemType("THAI");
-            dto.setQuantity(thai.getQuantity());
+            dto.setQuantity(thai.getCurrentQuantity()); // ⭐ ใช้ currentQuantity
 
-            // ⭐ ใช้ Grand Total (รวม Buffer แล้ว)
             dto.setTotalValue(thai.calculateTotalCost());
             dto.setFinalPrice(thai.calculateFinalPrice());
         }
@@ -61,6 +59,9 @@ public class StockMapper {
         return dto;
     }
 
+    /**
+     * ⭐ อัปเดต: Map ChinaStock พร้อม quantity tracking
+     */
     public ChinaStockDTO toChinaStockDTO(ChinaStock chinaStock) {
         if (chinaStock == null) return null;
 
@@ -71,21 +72,25 @@ public class StockMapper {
         dto.setShopURL(chinaStock.getShopURL());
         dto.setStatus(chinaStock.getStatus() != null ? chinaStock.getStatus().name() : null);
 
+        // ⭐ Quantity Management
+        dto.setOriginalQuantity(chinaStock.getOriginalQuantity());
+        dto.setCurrentQuantity(chinaStock.getCurrentQuantity());
+        dto.setUsedQuantity(chinaStock.getUsedQuantity());
+        dto.setUsagePercentage(chinaStock.getUsagePercentage());
+        dto.setRemainingPercentage(chinaStock.getRemainingPercentage());
+
+        // ⭐ Backward compatibility
+        dto.setQuantity(chinaStock.getCurrentQuantity());
+
+        // Price fields
         dto.setUnitPriceYuan(chinaStock.getUnitPriceYuan());
-        dto.setQuantity(chinaStock.getQuantity());
         dto.setTotalValueYuan(chinaStock.getTotalValueYuan());
         dto.setShippingWithinChinaYuan(chinaStock.getShippingWithinChinaYuan());
         dto.setTotalYuan(chinaStock.getTotalYuan());
-
-        // ⭐ totalBath = Grand Total
-        dto.setTotalBath(chinaStock.getTotalBath());
-
+        dto.setTotalBath(chinaStock.calculateTotalCost());
         dto.setPricePerUnitBath(chinaStock.getPricePerUnitBath());
         dto.setShippingChinaToThaiBath(chinaStock.getShippingChinaToThaiBath());
-
-        // ⭐ finalPricePerPair = Grand Total / Quantity
-        dto.setFinalPricePerPair(chinaStock.getFinalPricePerPair());
-
+        dto.setFinalPricePerPair(chinaStock.calculateFinalPrice());
         dto.setExchangeRate(chinaStock.getExchangeRate());
         dto.setIncludeBuffer(chinaStock.getIncludeBuffer());
         dto.setBufferPercentage(chinaStock.getBufferPercentage());
@@ -96,6 +101,9 @@ public class StockMapper {
         return dto;
     }
 
+    /**
+     * ⭐ อัปเดต: Map ThaiStock พร้อม quantity tracking
+     */
     public ThaiStockDTO toThaiStockDTO(ThaiStock thaiStock) {
         if (thaiStock == null) return null;
 
@@ -106,17 +114,22 @@ public class StockMapper {
         dto.setShopURL(thaiStock.getShopURL());
         dto.setStatus(thaiStock.getStatus() != null ? thaiStock.getStatus().name() : null);
 
-        dto.setQuantity(thaiStock.getQuantity());
+        // ⭐ Quantity Management
+        dto.setOriginalQuantity(thaiStock.getOriginalQuantity());
+        dto.setCurrentQuantity(thaiStock.getCurrentQuantity());
+        dto.setUsedQuantity(thaiStock.getUsedQuantity());
+        dto.setUsagePercentage(thaiStock.getUsagePercentage());
+        dto.setRemainingPercentage(thaiStock.getRemainingPercentage());
+
+        // ⭐ Backward compatibility
+        dto.setQuantity(thaiStock.getCurrentQuantity());
+
+        // Price fields
         dto.setPriceTotal(thaiStock.getPriceTotal());
         dto.setShippingCost(thaiStock.getShippingCost());
         dto.setPricePerUnit(thaiStock.getPricePerUnit());
-
-        // ⭐ pricePerUnitWithShipping = Final Price/Unit
         dto.setPricePerUnitWithShipping(thaiStock.getPricePerUnitWithShipping());
-
-        // ⭐ totalCost = Grand Total
         dto.setTotalCost(thaiStock.calculateTotalCost());
-
         dto.setIncludeBuffer(thaiStock.getIncludeBuffer());
         dto.setBufferPercentage(thaiStock.getBufferPercentage());
 

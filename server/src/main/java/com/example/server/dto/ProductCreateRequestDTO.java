@@ -28,6 +28,9 @@ public class ProductCreateRequestDTO {
     private String category;
     private BigDecimal sellingPrice;
     private List<ProductIngredientRequestDTO> ingredients;
-
+    /**
+     * ⭐ เพิ่ม: Status field
+     */
+    private String status; // "ACTIVE", "INACTIVE", "DISCONTINUED"
 
 }

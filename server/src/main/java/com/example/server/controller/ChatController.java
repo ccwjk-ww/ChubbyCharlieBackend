@@ -2,7 +2,7 @@ package com.example.server.controller;
 
 import com.example.server.dto.ChatRequest;
 import com.example.server.dto.ChatResponse;
-import com.example.server.service.GeminiService;
+import com.example.server.service.SmartChatService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,14 +14,14 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class ChatController {
 
-    private final GeminiService geminiService;
+    private final SmartChatService smartChatService;
 
     /**
-     * Endpoint สำหรับ chat
+     * ⭐ Endpoint สำหรับ Smart Chat (มี context จากระบบ)
      */
     @PostMapping
     public Mono<ResponseEntity<ChatResponse>> chat(@RequestBody ChatRequest request) {
-        return geminiService.chat(request)
+        return smartChatService.smartChat(request.getMessage())
                 .map(ResponseEntity::ok)
                 .onErrorResume(error ->
                         Mono.just(ResponseEntity.internalServerError()
@@ -34,6 +34,6 @@ public class ChatController {
      */
     @GetMapping("/health")
     public ResponseEntity<String> health() {
-        return ResponseEntity.ok("Chat AI is running!");
+        return ResponseEntity.ok("Chat AI is running! 🤖✅");
     }
 }

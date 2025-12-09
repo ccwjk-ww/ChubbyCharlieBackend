@@ -78,20 +78,83 @@ public class ProductService {
         return savedProduct;
     }
 
-    // ⭐ อัปเดต Product พร้อมคำนวณต้นทุนใหม่ (รองรับการอัปเดตรูปภาพ)
+    /**
+     * ⭐ อัปเดต Product - รองรับการอัปเดต Ingredients ด้วย
+     */
     public Product updateProduct(Long id, Product productDetails) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
 
+        System.out.println("📝 Updating product ID: " + id);
+
+        // อัปเดตข้อมูล Product
         updateProductFields(product, productDetails);
         validateProduct(product);
 
         Product updatedProduct = productRepository.save(product);
 
-        // คำนวณต้นทุนใหม่ทันทีหลังอัปเดต
+        System.out.println("✅ Product data updated: " + updatedProduct.getProductName());
+
+        // ⭐ คำนวณต้นทุนใหม่ทันที
         recalculateProductCost(updatedProduct.getProductId());
 
+        System.out.println("✅ Cost recalculated");
+
         return updatedProduct;
+    }
+
+    /**
+     * ⭐ เพิ่ม: อัปเดต Product พร้อม Ingredients ใหม่
+     */
+    @Transactional
+    public Product updateProductWithIngredients(Long id, Product productDetails, List<ProductIngredient> newIngredients) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
+
+        System.out.println("📝 Updating product with ingredients, ID: " + id);
+
+        // 1. อัปเดตข้อมูล Product
+        updateProductFields(product, productDetails);
+        validateProduct(product);
+
+        Product savedProduct = productRepository.save(product);
+
+        // 2. ลบ Ingredients เก่าทั้งหมด
+        List<ProductIngredient> oldIngredients = productIngredientRepository.findByProductProductId(id);
+        if (!oldIngredients.isEmpty()) {
+            System.out.println("🗑️ Deleting " + oldIngredients.size() + " old ingredients");
+            productIngredientRepository.deleteAll(oldIngredients);
+            productIngredientRepository.flush();
+        }
+
+        // 3. เพิ่ม Ingredients ใหม่
+        if (newIngredients != null && !newIngredients.isEmpty()) {
+            System.out.println("➕ Adding " + newIngredients.size() + " new ingredients");
+
+            for (ProductIngredient ingredient : newIngredients) {
+                ingredient.setProduct(savedProduct);
+                ingredient.setIngredientId(null); // Reset ID เพื่อสร้างใหม่
+
+                // โหลด StockItem
+                if (ingredient.getStockItem() != null && ingredient.getStockItem().getStockItemId() != null) {
+                    StockBase stockItem = stockBaseRepository.findById(ingredient.getStockItem().getStockItemId())
+                            .orElseThrow(() -> new RuntimeException("Stock item not found: " + ingredient.getStockItem().getStockItemId()));
+                    ingredient.setStockItem(stockItem);
+                }
+
+                productIngredientRepository.save(ingredient);
+            }
+
+            productIngredientRepository.flush();
+        }
+
+        // 4. คำนวณต้นทุนใหม่
+        System.out.println("🧮 Recalculating cost...");
+        recalculateProductCost(savedProduct.getProductId());
+
+        System.out.println("✅ Product and ingredients updated successfully");
+
+        return savedProduct;
     }
 
     // เพิ่ม/อัปเดต Ingredient
@@ -133,17 +196,23 @@ public class ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
+        System.out.println("🧮 Recalculating cost for product: " + product.getProductName());
+
         // คำนวณต้นทุนรวม
         BigDecimal totalCost = costCalculationService.calculateProductTotalCost(product);
         product.setCalculatedCost(totalCost);
+
+        System.out.println("💰 Total cost: " + totalCost);
 
         // คำนวณกำไร
         if (product.getSellingPrice() != null && totalCost != null) {
             BigDecimal profit = product.getSellingPrice().subtract(totalCost);
             product.setProfitMargin(profit);
+            System.out.println("📊 Profit: " + profit);
         }
 
         productRepository.save(product);
+        System.out.println("✅ Cost calculation saved");
     }
 
     // คำนวณต้นทุนทั้งหมดใหม่ (เมื่อ Stock ราคาเปลี่ยน)
@@ -206,7 +275,6 @@ public class ProductService {
             if (!ingredients.isEmpty()) {
                 System.out.println("Deleting " + ingredients.size() + " ingredients for product ID: " + id);
                 productIngredientRepository.deleteAll(ingredients);
-                // Force flush เพื่อให้แน่ใจว่า ingredients ถูกลบก่อน
                 productIngredientRepository.flush();
             }
 
@@ -247,12 +315,24 @@ public class ProductService {
 
     // ⭐ ปรับปรุง updateProductFields เพื่อรองรับ imageUrl
     private void updateProductFields(Product product, Product details) {
-        if (details.getProductName() != null) product.setProductName(details.getProductName());
-        if (details.getDescription() != null) product.setDescription(details.getDescription());
-        if (details.getSku() != null) product.setSku(details.getSku());
-        if (details.getCategory() != null) product.setCategory(details.getCategory());
-        if (details.getSellingPrice() != null) product.setSellingPrice(details.getSellingPrice());
-        if (details.getStatus() != null) product.setStatus(details.getStatus());
+        if (details.getProductName() != null) {
+            product.setProductName(details.getProductName());
+        }
+        if (details.getDescription() != null) {
+            product.setDescription(details.getDescription());
+        }
+        if (details.getSku() != null) {
+            product.setSku(details.getSku());
+        }
+        if (details.getCategory() != null) {
+            product.setCategory(details.getCategory());
+        }
+        if (details.getSellingPrice() != null) {
+            product.setSellingPrice(details.getSellingPrice());
+        }
+        if (details.getStatus() != null) {
+            product.setStatus(details.getStatus());
+        }
 
         // ⭐ อัปเดต imageUrl (ถ้ามีการส่งมา)
         if (details.getImageUrl() != null) {

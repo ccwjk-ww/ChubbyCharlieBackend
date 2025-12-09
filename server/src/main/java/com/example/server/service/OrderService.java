@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
@@ -399,11 +400,12 @@ public class OrderService {
         String prefix = switch (source) {
             case SHOP_24 -> "24S";
             case SHOPEE -> "SHP";
+            case TIKTOK -> "TIK";
             case MANUAL -> "MAN";
         };
 
         String timestamp = LocalDateTime.now().format(
-                java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+                DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
 
         return prefix + "-" + timestamp;
     }

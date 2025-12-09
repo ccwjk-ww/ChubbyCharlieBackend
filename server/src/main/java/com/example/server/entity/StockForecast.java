@@ -14,6 +14,7 @@ public class StockForecast {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long forecastId;
 
+    // ⭐ แก้ไข: เพิ่ม orphanRemoval เพื่อให้ลบ forecast เมื่อ stock ถูกลบ
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "stock_item_id", nullable = false)
     private StockBase stockItem;

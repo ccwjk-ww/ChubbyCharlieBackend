@@ -250,10 +250,12 @@ public class Order {
         }
     }
 
-    // Enums
+    // เพิ่มใน Order.java enum
+
     public enum OrderSource {
         SHOP_24("24shop"),
         SHOPEE("Shopee"),
+        TIKTOK("TikTok"),  // ⭐ เพิ่มบรรทัดนี้
         MANUAL("Manual");
 
         private final String displayName;

@@ -11,8 +11,8 @@ import java.util.List;
 @Entity
 @Data
 @Table(name = "stock_lot")
-@EqualsAndHashCode(exclude = {"items"}) // ป้องกัน infinite loop
-@ToString(exclude = {"items"}) // ป้องกัน infinite loop ใน toString
+@EqualsAndHashCode(exclude = {"items"})
+@ToString(exclude = {"items"})
 public class StockLot {
 
     @Id
@@ -25,14 +25,13 @@ public class StockLot {
     private LocalDateTime importDate;
     private LocalDateTime arrivalDate;
 
-    // ลบ totalShippingBath field ออกแล้ว
-
     @Enumerated(EnumType.STRING)
     private StockStatus status = StockStatus.PENDING;
 
-    // เปลี่ยนเป็น EAGER loading และใช้ @JoinColumn
-    @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
-    @JoinColumn(name = "stock_lot_id") // ใช้ foreign key แทน mappedBy
+    // ⭐ แก้ไข: เปลี่ยนเป็น orphanRemoval = false และลบ cascade = CascadeType.ALL
+    // เพื่อให้สามารถลบ Stock Item ได้โดยไม่กระทบ StockLot
+    @OneToMany(fetch = FetchType.EAGER, orphanRemoval = false)
+    @JoinColumn(name = "stock_lot_id", nullable = true) // ⭐ เพิ่ม nullable = true
     private List<StockBase> items = new ArrayList<>();
 
     public enum StockStatus {

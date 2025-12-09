@@ -4,8 +4,10 @@ import com.example.server.entity.ChinaStock;
 import com.example.server.entity.StockLot;
 import com.example.server.respository.ChinaStockRepository;
 import com.example.server.respository.StockLotRepository;
+import com.example.server.respository.StockForecastRepository; // ⭐ เพิ่ม
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // ⭐ เพิ่ม
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -19,6 +21,10 @@ public class ChinaStockService {
 
     @Autowired
     private StockLotRepository stockLotRepository;
+
+    // ⭐ เพิ่ม
+    @Autowired
+    private StockForecastRepository stockForecastRepository;
 
     public List<ChinaStock> getAllChinaStocks() {
         return chinaStockRepository.findAll();
@@ -68,8 +74,35 @@ public class ChinaStockService {
         return chinaStockRepository.save(chinaStock);
     }
 
+    /**
+     * ⭐ แก้ไข: ลบ forecasts ก่อนลบ stock
+     */
+    @Transactional
     public void deleteChinaStock(Long id) {
-        chinaStockRepository.deleteById(id);
+        // 1. ตรวจสอบว่ามี stock อยู่จริง
+        ChinaStock stock = chinaStockRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("China stock not found with id: " + id));
+
+        try {
+            // 2. ลบ forecasts ที่เกี่ยวข้องก่อน
+            int deletedForecasts = stockForecastRepository.deleteByStockItemStockItemId(id);
+            if (deletedForecasts > 0) {
+                System.out.println("🗑️ Deleted " + deletedForecasts + " forecast(s) for China Stock ID: " + id);
+            }
+
+            // 3. Flush เพื่อให้แน่ใจว่าลบ forecasts แล้ว
+            stockForecastRepository.flush();
+
+            // 4. ลบ stock
+            chinaStockRepository.delete(stock);
+            chinaStockRepository.flush();
+
+            System.out.println("✅ Successfully deleted China Stock ID: " + id);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error deleting China Stock ID " + id + ": " + e.getMessage());
+            throw new RuntimeException("Failed to delete China stock: " + e.getMessage(), e);
+        }
     }
 
     public List<ChinaStock> searchChinaStocks(String keyword) {
@@ -94,13 +127,6 @@ public class ChinaStockService {
         return chinaStockRepository.saveAll(stocks);
     }
 
-    // ⭐ แก้ไข: ลบ method เก่าที่ไม่ใช้แล้ว
-    // public List<ChinaStock> distributeShippingCosts(Long stockLotId) { ... }
-
-    /**
-     * ⭐ แก้ไข: distribute shipping costs โดยรับ totalShipping เป็น parameter
-     * ไม่ต้อง set avgShippingPerPair เพราะคำนวณอัตโนมัติแล้ว
-     */
     public List<ChinaStock> distributeShippingCosts(Long stockLotId, BigDecimal totalShipping) {
         List<ChinaStock> stocks = getChinaStocksByLot(stockLotId);
 
@@ -117,11 +143,7 @@ public class ChinaStockService {
                                 .multiply(BigDecimal.valueOf(stock.getQuantity()))
                                 .divide(BigDecimal.valueOf(totalQuantity), 3, RoundingMode.HALF_UP);
 
-                        // ⭐ ตั้งค่าส่งจีน-ไทยให้กับแต่ละ stock
-                        // avgShippingPerPair จะคำนวณอัตโนมัติจาก shippingChinaToThaiBath / quantity
                         stock.setShippingChinaToThaiBath(stockShippingPortion);
-
-                        // Recalculate all derived fields
                         stock.calculateFields();
                     }
                 });

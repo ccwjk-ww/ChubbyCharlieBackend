@@ -2,6 +2,7 @@ package com.example.server.respository;
 
 import com.example.server.entity.StockForecast;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -12,7 +13,13 @@ import java.util.Optional;
 
 @Repository
 public interface StockForecastRepository extends JpaRepository<StockForecast, Long> {
+    // ⭐ เพิ่ม: ลบ forecasts ตาม stock item id
+    @Modifying
+    @Query("DELETE FROM StockForecast sf WHERE sf.stockItem.stockItemId = :stockItemId")
+    int deleteByStockItemStockItemId(@Param("stockItemId") Long stockItemId);
 
+    // ใช้สำหรับ flush หลัง delete
+    void flush();
     /**
      * หา Forecast ล่าสุดของ Stock Item
      */

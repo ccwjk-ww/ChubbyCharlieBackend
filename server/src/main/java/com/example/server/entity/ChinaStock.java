@@ -46,9 +46,69 @@ public class ChinaStock extends StockBase {
     @Column
     private Boolean includeBuffer = false;
 
+    // ⭐ ฟิลด์เดิมที่มีอยู่แล้ว (จากโค้ดเดิม)
+    @Column(name = "original_quantity")
+    private Integer originalQuantity;
+
+    @Column(precision = 10, scale = 3, name = "unit_cost_at_import")
+    private BigDecimal unitCostAtImport;
+
+    @Column(precision = 10, scale = 3, name = "total_cost_at_import")
+    private BigDecimal totalCostAtImport;
+
     // ============================================
-    // ⭐ 1. calculateTotalValueYuan - ไม่ต้องแก้
+    // ⭐ เพิ่ม: Quantity Management Methods
     // ============================================
+
+    /**
+     * ✅ ดึงจำนวนสินค้าทั้งหมด (ตอนนำเข้า)
+     */
+    public Integer getOriginalQuantity() {
+        return originalQuantity != null ? originalQuantity : 0;
+    }
+
+    /**
+     * ✅ ดึงจำนวนสินค้าคงเหลือ (ปัจจุบัน)
+     */
+    public Integer getCurrentQuantity() {
+        return getQuantity() != null ? getQuantity() : 0;
+    }
+
+    /**
+     * ✅ คำนวณจำนวนสินค้าที่ใช้ไป
+     */
+    public Integer getUsedQuantity() {
+        int original = getOriginalQuantity();
+        int current = getCurrentQuantity();
+        return original - current;
+    }
+
+    /**
+     * ✅ คำนวณเปอร์เซ็นต์การใช้งาน
+     */
+    public BigDecimal getUsagePercentage() {
+        int original = getOriginalQuantity();
+        if (original <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        int used = getUsedQuantity();
+        return BigDecimal.valueOf(used)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(original), 2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * ✅ คำนวณเปอร์เซ็นต์ที่เหลือ
+     */
+    public BigDecimal getRemainingPercentage() {
+        return BigDecimal.valueOf(100).subtract(getUsagePercentage());
+    }
+
+    // ============================================
+    // การคำนวณแบบเดิม (ใช้สำหรับ Preview/Edit เท่านั้น)
+    // ============================================
+
     public BigDecimal calculateTotalValueYuan() {
         if (unitPriceYuan != null && getQuantity() != null) {
             this.totalValueYuan = unitPriceYuan
@@ -58,9 +118,6 @@ public class ChinaStock extends StockBase {
         return this.totalValueYuan;
     }
 
-    // ============================================
-    // ⭐ 2. calculateTotalYuan - ไม่ต้องแก้
-    // ============================================
     public BigDecimal calculateTotalYuan() {
         if (totalValueYuan != null && shippingWithinChinaYuan != null) {
             this.totalYuan = totalValueYuan.add(shippingWithinChinaYuan)
@@ -69,15 +126,10 @@ public class ChinaStock extends StockBase {
         return this.totalYuan;
     }
 
-    // ============================================
-    // ⭐ 3. calculateTotalBath - แก้ไข (รวมค่าส่ง)
-    // ============================================
     public BigDecimal calculateTotalBath() {
         if (totalYuan != null && exchangeRate != null) {
-            // แปลงหยวนเป็นบาท
             BigDecimal total = totalYuan.multiply(exchangeRate);
 
-            // ⭐ บวกค่าส่งจีน-ไทย
             if (shippingChinaToThaiBath != null) {
                 total = total.add(shippingChinaToThaiBath);
             }
@@ -87,9 +139,6 @@ public class ChinaStock extends StockBase {
         return this.totalBath;
     }
 
-    // ============================================
-    // ⭐ 4. calculatePricePerUnitBath - ไม่ต้องแก้
-    // ============================================
     public BigDecimal calculatePricePerUnitBath() {
         if (totalBath != null && getQuantity() != null && getQuantity() > 0) {
             this.pricePerUnitBath = totalBath.divide(
@@ -99,18 +148,22 @@ public class ChinaStock extends StockBase {
     }
 
     // ============================================
-    // ⭐ 5. calculateTotalCost - แก้ไข (เพิ่มแค่ Buffer)
+    // แก้ไข: calculateTotalCost() - ใช้ค่าคงที่
     // ============================================
     @Override
     public BigDecimal calculateTotalCost() {
+        // ถ้ามีค่า totalCostAtImport แล้ว ใช้ค่าคงที่นั้น
+        if (totalCostAtImport != null && totalCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return totalCostAtImport;
+        }
+
+        // ถ้ายังไม่มี ให้คำนวณ (กรณี Preview/Edit)
         if (totalBath == null) {
             return BigDecimal.ZERO;
         }
 
-        // ⭐ totalBath รวมค่าส่งแล้ว
         BigDecimal total = totalBath;
 
-        // ⭐ เพิ่มแค่ Buffer
         if (Boolean.TRUE.equals(includeBuffer) &&
                 bufferPercentage != null &&
                 bufferPercentage.compareTo(BigDecimal.ZERO) > 0) {
@@ -124,23 +177,25 @@ public class ChinaStock extends StockBase {
     }
 
     // ============================================
-    // ⭐ 6. calculateFinalPrice - แก้ไข
+    // แก้ไข: calculateFinalPrice() - ใช้ค่าคงที่
     // ============================================
     @Override
     public BigDecimal calculateFinalPrice() {
+        // ถ้ามีค่า unitCostAtImport แล้ว ใช้ค่าคงที่นั้น
+        if (unitCostAtImport != null && unitCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return unitCostAtImport;
+        }
+
+        // ถ้ายังไม่มี ให้คำนวณ (กรณี Preview/Edit)
         if (getQuantity() == null || getQuantity() == 0) {
             return BigDecimal.ZERO;
         }
 
-        // ⭐ ใช้ calculateTotalCost() ที่รวม Buffer แล้ว
         BigDecimal grandTotal = calculateTotalCost();
         return grandTotal.divide(
                 BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
     }
 
-    // ============================================
-    // ⭐ 7. calculateAvgShippingPerPair - ไม่ต้องแก้
-    // ============================================
     public BigDecimal calculateAvgShippingPerPair() {
         if (shippingChinaToThaiBath == null || getQuantity() == null || getQuantity() == 0) {
             return BigDecimal.ZERO;
@@ -149,33 +204,20 @@ public class ChinaStock extends StockBase {
                 BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
     }
 
-    // ============================================
-    // ⭐ 8. Getters - แก้ไข
-    // ============================================
-
-    /**
-     * ⭐ getTotalBath() คืนค่าจาก field (ไม่ใช่ calculateTotalCost)
-     */
     public BigDecimal getTotalBath() {
-        return this.totalBath; // ⭐ คืนค่าจาก field
+        return this.totalBath;
     }
 
-    /**
-     * ⭐ getFinalPricePerPair() คืนค่าจาก field (ไม่ใช่ calculateFinalPrice)
-     */
     public BigDecimal getFinalPricePerPair() {
-        return this.finalPricePerPair; // ⭐ คืนค่าจาก field
+        return this.finalPricePerPair;
     }
 
-    /**
-     * Backward compatibility
-     */
     public BigDecimal getAvgShippingPerPair() {
         return calculateAvgShippingPerPair();
     }
 
     // ============================================
-    // ⭐ 9. @PrePersist @PreUpdate - ไม่ต้องแก้
+    // แก้ไข: @PrePersist @PreUpdate
     // ============================================
     @PrePersist
     @PreUpdate
@@ -185,5 +227,18 @@ public class ChinaStock extends StockBase {
         calculateTotalBath();
         calculatePricePerUnitBath();
         this.finalPricePerPair = calculateFinalPrice();
+
+        // ⭐ บันทึกค่าต้นทุนตอนนำเข้า (ครั้งแรกเท่านั้น)
+        if (originalQuantity == null && getQuantity() != null) {
+            originalQuantity = getQuantity();
+        }
+
+        if (unitCostAtImport == null) {
+            unitCostAtImport = calculateFinalPrice();
+        }
+
+        if (totalCostAtImport == null) {
+            totalCostAtImport = calculateTotalCost();
+        }
     }
 }
