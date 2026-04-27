@@ -10,7 +10,8 @@ public class StockOptionDTO {
     private String type; // "CHINA" or "THAI"
     private BigDecimal unitCost;
     private String status;
-
+    // ⭐ เพิ่ม availableQuantity
+    private Integer availableQuantity;
     // ⭐ เพิ่ม lotName
     private String lotName;
 

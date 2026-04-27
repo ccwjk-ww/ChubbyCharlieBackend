@@ -326,7 +326,8 @@ public class StockLotService {
         return total.setScale(3, RoundingMode.HALF_UP);
     }
     /**
-     * ⭐ แก้ไข: คำนวณ Total Value ให้รวม Buffer
+     * ⭐ แก้ไข: getStockLotSummary คำนวณแยก beforeVat / vatAmount / withVat
+     *    เหมือนกับ logic ในหน้า stock-lot-detail (Frontend)
      */
     @Transactional(readOnly = true)
     public StockLotSummaryDTO getStockLotSummary(Long stockLotId) {
@@ -342,39 +343,59 @@ public class StockLotService {
             summary.setTotalItemCount(0);
             summary.setChinaItemCount(0);
             summary.setThaiItemCount(0);
-            summary.setGrandTotalValue(BigDecimal.ZERO);
+            summary.setTotalCostBeforeVat(BigDecimal.ZERO);
+            summary.setTotalVatAmount(BigDecimal.ZERO);
+            summary.setTotalCostWithVat(BigDecimal.ZERO);
             return summary;
         }
 
         // นับจำนวน items
-        long chinaCount = items.stream()
-                .filter(item -> item instanceof ChinaStock)
-                .count();
-        long thaiCount = items.stream()
-                .filter(item -> item instanceof ThaiStock)
-                .count();
+        long chinaCount = items.stream().filter(i -> i instanceof ChinaStock).count();
+        long thaiCount  = items.stream().filter(i -> i instanceof ThaiStock).count();
+        summary.setTotalItemCount(items.size());
+        summary.setChinaItemCount((int) chinaCount);
+        summary.setThaiItemCount((int) thaiCount);
 
-                summary.setTotalItemCount(items.size());
-                summary.setChinaItemCount((int) chinaCount);
-                summary.setThaiItemCount((int) thaiCount);
+        // ⭐ คำนวณแยก beforeVat และ vatAmount สำหรับแต่ละ item
+        BigDecimal totalBeforeVat = BigDecimal.ZERO;
+        BigDecimal totalVat       = BigDecimal.ZERO;
 
-        // ⭐ คำนวณ Grand Total Value (รวม Buffer)
-        BigDecimal grandTotalValue = items.stream()
-                .map(item -> {
-                    if (item instanceof ChinaStock) {
-                        ChinaStock chinaStock = (ChinaStock) item;
-                        // ใช้ calculateTotalCost() ที่รวม Buffer แล้ว
-                        return chinaStock.calculateTotalCost();
-                    } else if (item instanceof ThaiStock) {
-                        ThaiStock thaiStock = (ThaiStock) item;
-                        // ใช้ calculateTotalCost() ที่รวม Buffer แล้ว
-                        return thaiStock.calculateTotalCost();
-                    }
-                    return BigDecimal.ZERO;
-                })
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (StockBase item : items) {
+            BigDecimal baseAmount = BigDecimal.ZERO;
+            BigDecimal vatPct     = BigDecimal.ZERO;
+            boolean    includeVat = false;
 
-        summary.setGrandTotalValue(grandTotalValue);
+            if (item instanceof ChinaStock) {
+                ChinaStock china = (ChinaStock) item;
+                // totalBath = ยอดก่อน VAT (รวม shipping จีน-ไทยแล้ว)
+                baseAmount = china.getTotalBath() != null ? china.getTotalBath() : BigDecimal.ZERO;
+                vatPct     = china.getVatPercentage() != null ? china.getVatPercentage() : BigDecimal.ZERO;
+                includeVat = Boolean.TRUE.equals(china.getIncludeVat());
+
+            } else if (item instanceof ThaiStock) {
+                ThaiStock thai = (ThaiStock) item;
+                // priceTotal + shippingCost = ยอดก่อน VAT
+                BigDecimal price    = thai.getPriceTotal()  != null ? thai.getPriceTotal()  : BigDecimal.ZERO;
+                BigDecimal shipping = thai.getShippingCost() != null ? thai.getShippingCost() : BigDecimal.ZERO;
+                baseAmount = price.add(shipping);
+                vatPct     = thai.getVatPercentage() != null ? thai.getVatPercentage() : BigDecimal.ZERO;
+                includeVat = Boolean.TRUE.equals(thai.getIncludeVat());
+            }
+
+            // คำนวณ VAT ของ item นี้
+            BigDecimal vatAmount = BigDecimal.ZERO;
+            if (includeVat && vatPct.compareTo(BigDecimal.ZERO) > 0) {
+                vatAmount = baseAmount.multiply(vatPct)
+                        .divide(BigDecimal.valueOf(100), 3, RoundingMode.HALF_UP);
+            }
+
+            totalBeforeVat = totalBeforeVat.add(baseAmount);
+            totalVat       = totalVat.add(vatAmount);
+        }
+
+        summary.setTotalCostBeforeVat(totalBeforeVat);
+        summary.setTotalVatAmount(totalVat);
+        summary.setTotalCostWithVat(totalBeforeVat.add(totalVat));
 
         return summary;
     }

@@ -16,6 +16,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/thai-stocks")
+@CrossOrigin(origins = "*")
 public class ThaiStockController {
 
     @Autowired
@@ -24,14 +25,11 @@ public class ThaiStockController {
     @Autowired
     private StockMapper stockMapper;
 
-    // Get all Thai stocks
     @GetMapping
     public List<ThaiStockDTO> getAllThaiStocks() {
-        List<ThaiStock> stocks = thaiStockService.getAllThaiStocks();
-        return stockMapper.toThaiStockDTOList(stocks);
+        return stockMapper.toThaiStockDTOList(thaiStockService.getAllThaiStocks());
     }
 
-    // Get Thai stock by ID
     @GetMapping("/{id}")
     public ResponseEntity<ThaiStockDTO> getThaiStockById(@PathVariable Long id) {
         Optional<ThaiStock> thaiStock = thaiStockService.getThaiStockById(id);
@@ -39,80 +37,109 @@ public class ThaiStockController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // Get Thai stocks by status
     @GetMapping("/status/{status}")
     public List<ThaiStockDTO> getThaiStocksByStatus(@PathVariable String status) {
-        try {
-            ThaiStock.StockStatus stockStatus = ThaiStock.StockStatus.valueOf(status.toUpperCase());
-            List<ThaiStock> stocks = thaiStockService.getThaiStocksByStatus(stockStatus);
-            return stockMapper.toThaiStockDTOList(stocks);
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid status: " + status);
-        }
+        ThaiStock.StockStatus stockStatus = ThaiStock.StockStatus.valueOf(status.toUpperCase());
+        return stockMapper.toThaiStockDTOList(thaiStockService.getThaiStocksByStatus(stockStatus));
     }
 
-    // Get Thai stocks by lot ID
     @GetMapping("/lot/{stockLotId}")
     public List<ThaiStockDTO> getThaiStocksByLot(@PathVariable Long stockLotId) {
-        List<ThaiStock> stocks = thaiStockService.getThaiStocksByLot(stockLotId);
-        return stockMapper.toThaiStockDTOList(stocks);
+        return stockMapper.toThaiStockDTOList(thaiStockService.getThaiStocksByLot(stockLotId));
     }
 
-    // Get total value by lot
     @GetMapping("/lot/{stockLotId}/total-value")
     public ResponseEntity<Map<String, BigDecimal>> getTotalValueByLot(@PathVariable Long stockLotId) {
         BigDecimal totalValue = thaiStockService.getTotalValueByLot(stockLotId);
         return ResponseEntity.ok(Map.of("totalValue", totalValue != null ? totalValue : BigDecimal.ZERO));
     }
 
-    // Search Thai stocks
     @GetMapping("/search")
     public List<ThaiStockDTO> searchThaiStocks(@RequestParam String keyword) {
-        List<ThaiStock> stocks = thaiStockService.searchThaiStocks(keyword);
-        return stockMapper.toThaiStockDTOList(stocks);
+        return stockMapper.toThaiStockDTOList(thaiStockService.searchThaiStocks(keyword));
     }
 
-    // Create new Thai stock
     @PostMapping
     public ResponseEntity<ThaiStockDTO> createThaiStock(@RequestBody ThaiStock thaiStock) {
         try {
-            ThaiStock createdThaiStock = thaiStockService.createThaiStock(thaiStock);
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(stockMapper.toThaiStockDTO(createdThaiStock));
+            ThaiStock created = thaiStockService.createThaiStock(thaiStock);
+            return ResponseEntity.status(HttpStatus.CREATED).body(stockMapper.toThaiStockDTO(created));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
     }
 
-    // Update Thai stock
     @PutMapping("/{id}")
     public ResponseEntity<ThaiStockDTO> updateThaiStock(@PathVariable Long id, @RequestBody ThaiStock thaiStockDetails) {
         try {
-            ThaiStock updatedThaiStock = thaiStockService.updateThaiStock(id, thaiStockDetails);
-            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updatedThaiStock));
+            ThaiStock updated = thaiStockService.updateThaiStock(id, thaiStockDetails);
+            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    // Update Thai stock status only
     @PatchMapping("/{id}/status")
     public ResponseEntity<ThaiStockDTO> updateThaiStockStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         try {
             String statusStr = statusUpdate.get("status");
-            if (statusStr == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
+            if (statusStr == null) return ResponseEntity.badRequest().build();
             ThaiStock.StockStatus status = ThaiStock.StockStatus.valueOf(statusStr.toUpperCase());
-            ThaiStock updatedThaiStock = thaiStockService.updateThaiStockStatus(id, status);
-            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updatedThaiStock));
+            ThaiStock updated = thaiStockService.updateThaiStockStatus(id, status);
+            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    // Delete Thai stock
+    // ============================================
+    // ⭐ NEW: Defective Quantity Endpoints
+    // ============================================
+
+    /**
+     * เพิ่มจำนวนของเสีย (สะสม)
+     * PATCH /api/thai-stocks/{id}/defective
+     * Body: { "count": 3 }
+     */
+    @PatchMapping("/{id}/defective")
+    public ResponseEntity<?> recordDefective(@PathVariable Long id,
+                                             @RequestBody Map<String, Object> body) {
+        try {
+            Object countObj = body.get("count");
+            if (countObj == null) return ResponseEntity.badRequest().body(Map.of("message", "count is required"));
+            int count = Integer.parseInt(countObj.toString());
+            if (count <= 0) return ResponseEntity.badRequest().body(Map.of("message", "count must be > 0"));
+            String note = body.get("note") != null ? body.get("note").toString() : null;
+            ThaiStock updated = thaiStockService.recordDefective(id, count, note);
+            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * ตั้งค่าจำนวนของเสียโดยตรง (ใช้สำหรับ edit/reset)
+     * PUT /api/thai-stocks/{id}/defective
+     * Body: { "count": 5 }
+     */
+    @PutMapping("/{id}/defective")
+    public ResponseEntity<?> setDefectiveQuantity(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
+        try {
+            Integer count = body.get("count");
+            if (count == null || count < 0) {
+                return ResponseEntity.badRequest().body(Map.of("message", "count cannot be negative"));
+            }
+            ThaiStock updated = thaiStockService.setDefectiveQuantity(id, count);
+            return ResponseEntity.ok(stockMapper.toThaiStockDTO(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteThaiStock(@PathVariable Long id) {
         try {

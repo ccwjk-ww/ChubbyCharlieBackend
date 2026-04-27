@@ -19,4 +19,6 @@ public class OrderCreateRequest {
     private BigDecimal discount;
     private String notes;
     private List<OrderItemRequest> orderItems;
+    private Boolean vatEnabled;
+    private BigDecimal vatRate;
 }

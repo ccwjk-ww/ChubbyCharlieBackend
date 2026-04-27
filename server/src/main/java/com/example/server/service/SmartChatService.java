@@ -195,30 +195,30 @@ public class SmartChatService {
                 System.err.println("Error getting stock data: " + e.getMessage());
             }
         }
-
-        // 4. Stock Forecast
-        if (analysis.needsStockForecast) {
-            try {
-                SystemDataService.StockForecastData forecastData = systemDataService.getStockForecastData();
-                context.append("### ⚠️ การพยากรณ์สต็อก\n");
-                context.append(String.format("- Stock ที่ต้องสั่งซื้อเร่งด่วน: %d รายการ\n",
-                        forecastData.getUrgentStockCount()));
-                context.append(String.format("- Stock ที่จะหมดใน 7 วัน: %d รายการ\n",
-                        forecastData.getStockRunningOutSoon()));
-                context.append(String.format("- ต้นทุนที่ต้องสั่งซื้อเร่งด่วน: %.2f บาท\n",
-                        forecastData.getEstimatedUrgentOrderCost()));
-
-                if (!forecastData.getTop5NearEmptyItems().isEmpty()) {
-                    context.append("- Top 5 Stock ที่ใกล้หมด:\n");
-                    forecastData.getTop5NearEmptyItems().forEach(item ->
-                            context.append(String.format("  • %s\n", item))
-                    );
-                }
-                context.append("\n");
-            } catch (Exception e) {
-                System.err.println("Error getting forecast data: " + e.getMessage());
-            }
-        }
+//
+//        // 4. Stock Forecast
+//        if (analysis.needsStockForecast) {
+//            try {
+//                SystemDataService.StockForecastData forecastData = systemDataService.getStockForecastData();
+//                context.append("### ⚠️ การพยากรณ์สต็อก\n");
+//                context.append(String.format("- Stock ที่ต้องสั่งซื้อเร่งด่วน: %d รายการ\n",
+//                        forecastData.getUrgentStockCount()));
+//                context.append(String.format("- Stock ที่จะหมดใน 7 วัน: %d รายการ\n",
+//                        forecastData.getStockRunningOutSoon()));
+//                context.append(String.format("- ต้นทุนที่ต้องสั่งซื้อเร่งด่วน: %.2f บาท\n",
+//                        forecastData.getEstimatedUrgentOrderCost()));
+//
+//                if (!forecastData.getTop5NearEmptyItems().isEmpty()) {
+//                    context.append("- Top 5 Stock ที่ใกล้หมด:\n");
+//                    forecastData.getTop5NearEmptyItems().forEach(item ->
+//                            context.append(String.format("  • %s\n", item))
+//                    );
+//                }
+//                context.append("\n");
+//            } catch (Exception e) {
+//                System.err.println("Error getting forecast data: " + e.getMessage());
+//            }
+//        }
 
         // 5. Order Data
         if (analysis.needsOrderData && !analysis.needsYearlyData) {

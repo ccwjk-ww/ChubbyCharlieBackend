@@ -29,7 +29,7 @@ public class SystemDataService {
     @Autowired private ChinaStockRepository chinaStockRepository;
     @Autowired private ThaiStockRepository thaiStockRepository;
     @Autowired private StockLotRepository stockLotRepository;
-    @Autowired private StockForecastRepository stockForecastRepository;
+//    @Autowired private StockForecastRepository stockForecastRepository;
     @Autowired private OrderRepository orderRepository;
     @Autowired private OrderItemRepository orderItemRepository;
     @Autowired private TransactionRepository transactionRepository;
@@ -190,42 +190,42 @@ public class SystemDataService {
 
     /**
      * ดึงข้อมูล Stock Forecast
-     */
-    public StockForecastData getStockForecastData() {
-        StockForecastData data = new StockForecastData();
-
-        List<StockForecast> allForecasts = stockForecastRepository.findAll();
-        data.setTotalForecasts(allForecasts.size());
-
-        // นับตาม urgency level
-        Map<StockForecast.UrgencyLevel, Long> urgencyCounts = allForecasts.stream()
-                .collect(Collectors.groupingBy(StockForecast::getUrgencyLevel, Collectors.counting()));
-        data.setUrgencyLevelCounts(urgencyCounts);
-
-        // รายการเร่งด่วน
-        List<StockForecast> urgentItems = stockForecastRepository.findUrgentStockItems();
-        data.setUrgentStockCount(urgentItems.size());
-
-        // รายการที่จะหมดใน 7 วัน
-        List<StockForecast> runningOut = stockForecastRepository.findStockRunningOutInDays(7);
-        data.setStockRunningOutSoon(runningOut.size());
-
-        // คำนวณต้นทุนที่ต้องสั่งซื้อเร่งด่วน
-        BigDecimal criticalCost = urgentItems.stream()
-                .map(f -> f.getEstimatedOrderCost() != null ? f.getEstimatedOrderCost() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        data.setEstimatedUrgentOrderCost(criticalCost);
-
-        // Top 5 items ที่ใกล้หมด
-        List<String> top5NearEmpty = runningOut.stream()
-                .limit(5)
-                .map(f -> String.format("%s (เหลือ %d วัน)",
-                        f.getStockItemName(), f.getDaysUntilStockOut()))
-                .collect(Collectors.toList());
-        data.setTop5NearEmptyItems(top5NearEmpty);
-
-        return data;
-    }
+//     */
+//    public StockForecastData getStockForecastData() {
+//        StockForecastData data = new StockForecastData();
+//
+//        List<StockForecast> allForecasts = stockForecastRepository.findAll();
+//        data.setTotalForecasts(allForecasts.size());
+//
+//        // นับตาม urgency level
+//        Map<StockForecast.UrgencyLevel, Long> urgencyCounts = allForecasts.stream()
+//                .collect(Collectors.groupingBy(StockForecast::getUrgencyLevel, Collectors.counting()));
+//        data.setUrgencyLevelCounts(urgencyCounts);
+//
+//        // รายการเร่งด่วน
+//        List<StockForecast> urgentItems = stockForecastRepository.findUrgentStockItems();
+//        data.setUrgentStockCount(urgentItems.size());
+//
+//        // รายการที่จะหมดใน 7 วัน
+//        List<StockForecast> runningOut = stockForecastRepository.findStockRunningOutInDays(7);
+//        data.setStockRunningOutSoon(runningOut.size());
+//
+//        // คำนวณต้นทุนที่ต้องสั่งซื้อเร่งด่วน
+//        BigDecimal criticalCost = urgentItems.stream()
+//                .map(f -> f.getEstimatedOrderCost() != null ? f.getEstimatedOrderCost() : BigDecimal.ZERO)
+//                .reduce(BigDecimal.ZERO, BigDecimal::add);
+//        data.setEstimatedUrgentOrderCost(criticalCost);
+//
+//        // Top 5 items ที่ใกล้หมด
+//        List<String> top5NearEmpty = runningOut.stream()
+//                .limit(5)
+//                .map(f -> String.format("%s (เหลือ %d วัน)",
+//                        f.getStockItemName(), f.getDaysUntilStockOut()))
+//                .collect(Collectors.toList());
+//        data.setTop5NearEmptyItems(top5NearEmpty);
+//
+//        return data;
+//    }
 
     // ============================================
     // ORDER & SALES DATA
@@ -570,15 +570,15 @@ public class SystemDataService {
         private Map<StockLot.StockStatus, Long> lotStatusCounts;
     }
 
-    @Data
-    public static class StockForecastData {
-        private int totalForecasts;
-        private Map<StockForecast.UrgencyLevel, Long> urgencyLevelCounts;
-        private int urgentStockCount;
-        private int stockRunningOutSoon;
-        private BigDecimal estimatedUrgentOrderCost;
-        private List<String> top5NearEmptyItems;
-    }
+//    @Data
+//    public static class StockForecastData {
+//        private int totalForecasts;
+//        private Map<StockForecast.UrgencyLevel, Long> urgencyLevelCounts;
+//        private int urgentStockCount;
+//        private int stockRunningOutSoon;
+//        private BigDecimal estimatedUrgentOrderCost;
+//        private List<String> top5NearEmptyItems;
+//    }
 
     @Data
     public static class OrderData {

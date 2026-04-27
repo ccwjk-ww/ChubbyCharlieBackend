@@ -47,6 +47,7 @@ public class OrderItem {
     @Column(precision = 10, scale = 2)
     private BigDecimal profit;
 
+    @Column(length = 2000)
     private String notes;
 
     @Enumerated(EnumType.STRING)

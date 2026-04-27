@@ -1,6 +1,9 @@
 package com.example.server.service;
 
+import com.example.server.dto.ProductIngredientRequestDTO;
 import com.example.server.entity.*;
+import com.example.server.mapper.ProductMapper;
+import com.example.server.mapper.StockMapper;
 import com.example.server.respository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -8,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -23,7 +27,13 @@ public class ProductService {
     private ProductCostCalculationService costCalculationService;
 
     @Autowired
+    private ProductIngredientService ingredientService;
+
+    @Autowired
     private StockBaseRepository stockBaseRepository;
+
+    @Autowired
+    private ProductMapper productMapper;
 
     // CRUD Operations
     @Transactional(readOnly = true)
@@ -77,7 +87,98 @@ public class ProductService {
 
         return savedProduct;
     }
+    /**
+     * ⭐ สร้าง Product พร้อม Multi-Lot Ingredients
+     */
+    @Transactional
+    public Product createProductWithMultiLotIngredients(
+            Product product,
+            List<ProductIngredientRequestDTO> ingredientRequests) {
 
+        validateProduct(product);
+        Product savedProduct = productRepository.save(product);
+
+        System.out.println("📦 Creating product with Multi-Lot ingredients");
+
+        if (ingredientRequests != null && !ingredientRequests.isEmpty()) {
+            for (ProductIngredientRequestDTO request : ingredientRequests) {
+                System.out.println("📌 Processing ingredient: " + request.getIngredientName());
+                System.out.println("  - Mode: " + request.getAllocationMode());
+
+                if ("MULTI_LOT".equals(request.getAllocationMode())) {
+                    // โหมด Multi-Lot
+                    System.out.println("  - Creating Multi-Lot ingredient");
+                    System.out.println("  - Allocations: " +
+                            (request.getStockAllocations() != null ? request.getStockAllocations().size() : 0));
+
+                    ingredientService.createMultiLotIngredient(
+                            savedProduct,
+                            request.getIngredientName(),
+                            request.getRequiredQuantity(),
+                            request.getUnit(),
+                            request.getStockAllocations().stream()
+                                    .map(this::toStockAllocationRequest)
+                                    .collect(Collectors.toList()),
+                            request.getNotes()
+                    );
+                } else {
+                    // โหมด Single (แบบเดิม)
+                    System.out.println("  - Creating Single mode ingredient");
+                    ProductIngredient ingredient = productMapper.toProductIngredient(request);
+                    ingredient.setProduct(savedProduct);
+
+                    // ⭐ คำนวณต้นทุนสำหรับ Single mode
+                    if (ingredient.getStockItem() != null) {
+                        BigDecimal unitCost = getStockUnitCost(ingredient.getStockItem());
+                        ingredient.setCostPerUnit(unitCost);
+                        ingredient.setTotalCost(unitCost.multiply(ingredient.getRequiredQuantity()));
+                        System.out.println("  - Unit Cost: " + unitCost);
+                        System.out.println("  - Total Cost: " + ingredient.getTotalCost());
+                    }
+
+                    productIngredientRepository.save(ingredient);
+                }
+            }
+
+            // ⭐ สำคัญมาก: คำนวณต้นทุนรวมของ Product
+            System.out.println("🧮 Recalculating product cost...");
+            recalculateProductCost(savedProduct.getProductId());
+
+            // โหลด Product ใหม่เพื่อให้ได้ต้นทุนที่คำนวณแล้ว
+            savedProduct = productRepository.findById(savedProduct.getProductId())
+                    .orElseThrow(() -> new RuntimeException("Product not found"));
+
+            System.out.println("✅ Final Product Cost: " + savedProduct.getCalculatedCost());
+        }
+
+        return savedProduct;
+    }
+
+    // ⭐ เพิ่ม helper method
+    private BigDecimal getStockUnitCost(StockBase stock) {
+        if (stock instanceof ChinaStock) {
+            ChinaStock chinaStock = (ChinaStock) stock;
+            return chinaStock.getFinalPricePerPair() != null ?
+                    chinaStock.getFinalPricePerPair() :
+                    chinaStock.calculateFinalPrice();
+        } else if (stock instanceof ThaiStock) {
+            ThaiStock thaiStock = (ThaiStock) stock;
+            return thaiStock.getPricePerUnitWithShipping() != null ?
+                    thaiStock.getPricePerUnitWithShipping() :
+                    thaiStock.calculateFinalPrice();
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private ProductIngredientService.StockAllocationRequest toStockAllocationRequest(
+            ProductIngredientRequestDTO.StockAllocationRequest dto) {
+        ProductIngredientService.StockAllocationRequest request =
+                new ProductIngredientService.StockAllocationRequest();
+        request.setStockItemId(dto.getStockItemId());
+        request.setAllocatedQuantity(dto.getAllocatedQuantity());
+        request.setAllocationPriority(dto.getAllocationPriority());
+        return request;
+    }
     /**
      * ⭐ อัปเดต Product - รองรับการอัปเดต Ingredients ด้วย
      */
@@ -192,6 +293,8 @@ public class ProductService {
     }
 
     // คำนวณต้นทุนใหม่สำหรับ Product เดียว
+    // ProductService.java
+    @Transactional
     public void recalculateProductCost(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -200,9 +303,11 @@ public class ProductService {
 
         // คำนวณต้นทุนรวม
         BigDecimal totalCost = costCalculationService.calculateProductTotalCost(product);
-        product.setCalculatedCost(totalCost);
 
-        System.out.println("💰 Total cost: " + totalCost);
+        System.out.println("💰 Calculated total cost: " + totalCost);
+
+        // ⭐ บันทึกต้นทุน
+        product.setCalculatedCost(totalCost);
 
         // คำนวณกำไร
         if (product.getSellingPrice() != null && totalCost != null) {
@@ -211,11 +316,27 @@ public class ProductService {
             System.out.println("📊 Profit: " + profit);
         }
 
-        productRepository.save(product);
-        System.out.println("✅ Cost calculation saved");
+        // ⭐ บันทึกและ flush
+        productRepository.saveAndFlush(product);
+
+        System.out.println("✅ Cost calculation saved to product");
+
+        // ⭐ Reload เพื่อ verify
+        Product reloaded = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+
+        System.out.println("✅ Verification from DB:");
+        System.out.println("  - DB Calculated Cost: " + reloaded.getCalculatedCost());
+        System.out.println("  - DB Profit Margin: " + reloaded.getProfitMargin());
+
+        if (reloaded.getCalculatedCost() == null ||
+                reloaded.getCalculatedCost().compareTo(BigDecimal.ZERO) == 0) {
+            System.err.println("⚠️ WARNING: Product cost is 0 in database!");
+        }
     }
 
     // คำนวณต้นทุนทั้งหมดใหม่ (เมื่อ Stock ราคาเปลี่ยน)
+    @Transactional
     public void recalculateAllProductCosts() {
         List<Product> allProducts = productRepository.findAll();
 

@@ -14,4 +14,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     // ⭐ ตรวจสอบว่า username ซ้ำหรือไม่
     boolean existsByUsername(String username);
+
+    // ⭐ ตรวจสอบว่า email ซ้ำหรือไม่
+    boolean existsByEmail(String email);
+
+    // ⭐ ตรวจสอบว่า username ซ้ำ (ยกเว้น employee ที่กำลัง edit)
+    boolean existsByUsernameAndEmpIdNot(String username, Long empId);
+
+    // ⭐ ตรวจสอบว่า email ซ้ำ (ยกเว้น employee ที่กำลัง edit)
+    boolean existsByEmailAndEmpIdNot(String email, Long empId);
 }

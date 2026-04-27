@@ -136,15 +136,35 @@ public class TransactionService {
     // AUTO Transaction Creation (จากระบบอื่น)
     // ============================================
 
+//    /**
+//     * ✅ สร้าง Transaction จากการชำระเงิน Order
+//     * เรียกใช้จาก OrderService เมื่อ PaymentStatus = PAID
+//     */
+//    @Transactional(propagation = Propagation.REQUIRES_NEW)
+//    public Transaction createOrderPaymentTransaction(Order order) {
+//        Transaction transaction = new Transaction();
+//
+//        // ✅ Generate transaction number
+//        transaction.setTransactionNumber(generateTransactionNumber(Transaction.TransactionType.INCOME));
+//
+//        transaction.setType(Transaction.TransactionType.INCOME);
+//        transaction.setCategory(Transaction.TransactionCategory.ORDER_PAYMENT);
+//        transaction.setAmount(order.getNetAmount());
+//        transaction.setDescription("รายรับจากคำสั่งซื้อ: " + order.getOrderNumber());
+//        transaction.setOrderId(order.getOrderId());
+//        transaction.setTransactionDate(LocalDateTime.now());
+//        transaction.setMode(Transaction.TransactionMode.AUTO);
+//        transaction.setCreatedBy("SYSTEM");
+//
+//        return transactionRepository.save(transaction);
+//    }
     /**
-     * ✅ สร้าง Transaction จากการชำระเงิน Order
-     * เรียกใช้จาก OrderService เมื่อ PaymentStatus = PAID
+     * ✅ UPDATED: สร้าง Transaction จากการชำระเงิน Order พร้อมระบุวันที่
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Transaction createOrderPaymentTransaction(Order order) {
+    public Transaction createOrderPaymentTransaction(Order order, LocalDateTime paymentDate) {
         Transaction transaction = new Transaction();
 
-        // ✅ Generate transaction number
         transaction.setTransactionNumber(generateTransactionNumber(Transaction.TransactionType.INCOME));
 
         transaction.setType(Transaction.TransactionType.INCOME);
@@ -152,13 +172,23 @@ public class TransactionService {
         transaction.setAmount(order.getNetAmount());
         transaction.setDescription("รายรับจากคำสั่งซื้อ: " + order.getOrderNumber());
         transaction.setOrderId(order.getOrderId());
-        transaction.setTransactionDate(LocalDateTime.now());
+
+        // ⭐ ใช้วันที่ที่ระบุ หรือวันที่ปัจจุบันถ้าไม่ระบุ
+        transaction.setTransactionDate(paymentDate != null ? paymentDate : LocalDateTime.now());
+
         transaction.setMode(Transaction.TransactionMode.AUTO);
         transaction.setCreatedBy("SYSTEM");
 
         return transactionRepository.save(transaction);
     }
 
+    /**
+     * ⭐ Overload - รองรับการเรียกแบบเดิม (ไม่มี paymentDate)
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Transaction createOrderPaymentTransaction(Order order) {
+        return createOrderPaymentTransaction(order, null);
+    }
     /**
      * ✅ สร้าง Transaction จากการสร้าง StockLot
      * เรียกใช้จาก StockLotService เมื่อสร้าง lot ใหม่

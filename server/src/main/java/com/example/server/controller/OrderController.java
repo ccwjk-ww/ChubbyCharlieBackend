@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -199,21 +201,62 @@ public class OrderController {
         }
     }
 
+//    @PatchMapping("/{id}/payment-status")
+//    public ResponseEntity<?> updatePaymentStatus(
+//            @PathVariable Long id,
+//            @RequestBody Map<String, String> request) {
+//        try {
+//            String paymentStatus = request.get("paymentStatus");
+//            if (paymentStatus == null || paymentStatus.isEmpty()) {
+//                return ResponseEntity.badRequest().body(Map.of(
+//                        "success", false,
+//                        "message", "Payment status is required"
+//                ));
+//            }
+//            Order updatedOrder = orderService.updatePaymentStatus(id, Order.PaymentStatus.valueOf(paymentStatus));
+//            OrderDTO orderDTO = orderMapper.toOrderDTO(updatedOrder);
+//            return ResponseEntity.ok(orderDTO);
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+//                    "success", false,
+//                    "message", "Failed to update payment status: " + e.getMessage()
+//            ));
+//        }
+//    }
     @PatchMapping("/{id}/payment-status")
     public ResponseEntity<?> updatePaymentStatus(
             @PathVariable Long id,
-            @RequestBody Map<String, String> request) {
+            @RequestBody Map<String, Object> request) {
         try {
-            String paymentStatus = request.get("paymentStatus");
+            String paymentStatus = (String) request.get("paymentStatus");
             if (paymentStatus == null || paymentStatus.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of(
                         "success", false,
                         "message", "Payment status is required"
                 ));
             }
-            Order updatedOrder = orderService.updatePaymentStatus(id, Order.PaymentStatus.valueOf(paymentStatus));
+
+            // ⭐ NEW: รับวันที่ชำระเงินจาก request (optional)
+            LocalDateTime paymentDate = null;
+            if (request.containsKey("paymentDate") && request.get("paymentDate") != null) {
+                String paymentDateStr = (String) request.get("paymentDate");
+                // รองรับทั้ง ISO-8601 ที่มี Z และไม่มี Z
+                paymentDate = Instant.parse(paymentDateStr)
+                        .atZone(ZoneId.of("Asia/Bangkok"))
+                        .toLocalDateTime();
+            }
+
+            // เรียก service พร้อมวันที่ชำระเงิน
+            Order updatedOrder = orderService.updatePaymentStatus(
+                    id,
+                    Order.PaymentStatus.valueOf(paymentStatus),
+                    paymentDate
+            );
+
             OrderDTO orderDTO = orderMapper.toOrderDTO(updatedOrder);
             return ResponseEntity.ok(orderDTO);
+
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -674,6 +717,8 @@ public class OrderController {
         order.setShippingFee(request.getShippingFee() != null ? request.getShippingFee() : BigDecimal.ZERO);
         order.setDiscount(request.getDiscount() != null ? request.getDiscount() : BigDecimal.ZERO);
         order.setNotes(request.getNotes());
+        order.setVatEnabled(request.getVatEnabled() != null ? request.getVatEnabled() : false);
+        order.setVatRate(request.getVatRate());
         return order;
     }
 

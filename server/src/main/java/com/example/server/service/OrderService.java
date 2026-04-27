@@ -27,52 +27,31 @@ public class OrderService {
     @Autowired
     private CustomerRepository customerRepository;
 
-    // ⭐ NEW: เพิ่ม TransactionService
     @Autowired
     private TransactionService transactionService;
 
     // ============================================
-    // CRUD Operations - FIXED
+    // CRUD Operations
     // ============================================
 
-    /**
-     * ✅ แก้ไข: ใช้ JOIN FETCH เพื่อหลีกเลี่ยง N+1 query
-     * และคำนวณ totals ทุก order
-     */
-    @Transactional(readOnly = false) // ⭐ เปลี่ยนเป็น false เพื่อ save ได้
+    @Transactional(readOnly = false)
     public List<Order> getAllOrders() {
-        // ✅ ใช้ JOIN FETCH แทน lazy loading
         List<Order> orders = orderRepository.findAllOrdersWithItems();
-
-        // ✅ คำนวณและบันทึก totals สำหรับทุก order
         for (Order order : orders) {
             order.calculateTotals();
         }
-
-        // ✅ Batch save เพื่อประสิทธิภาพ
         orderRepository.saveAll(orders);
-
         return orders;
     }
 
-    /**
-     * ✅ แก้ไข: ใช้ JOIN FETCH และ save totals
-     */
-    @Transactional(readOnly = false) // ⭐ เปลี่ยนเป็น false
+    @Transactional(readOnly = false)
     public Optional<Order> getOrderById(Long id) {
-        // ✅ ใช้ query ที่ fetch items พร้อมกัน
         Optional<Order> orderOpt = orderRepository.findByIdWithItems(id);
-
         if (orderOpt.isPresent()) {
             Order order = orderOpt.get();
-
-            // ✅ คำนวณ totals
             order.calculateTotals();
-
-            // ✅ บันทึกการเปลี่ยนแปลง
             orderRepository.save(order);
         }
-
         return orderOpt;
     }
 
@@ -97,40 +76,34 @@ public class OrderService {
     }
 
     // ============================================
-    // Create Order - FIXED ORPHAN REMOVAL
+    // Create Order
     // ============================================
 
-    /**
-     * ✅ ปรับปรุง: ลดจำนวน database calls และป้องกัน orphan removal error
-     */
     public Order createOrder(Order order, List<OrderItem> items) {
         validateOrder(order);
 
-        // Generate order number
         if (order.getOrderNumber() == null || order.getOrderNumber().trim().isEmpty()) {
             order.setOrderNumber(generateOrderNumber(order.getSource()));
         }
 
-        // Check duplicate
         if (orderRepository.findByOrderNumber(order.getOrderNumber()).isPresent()) {
             throw new IllegalArgumentException("Order number already exists: " + order.getOrderNumber());
         }
 
-        // ✅ Initialize default values
         if (order.getShippingFee() == null) order.setShippingFee(BigDecimal.ZERO);
         if (order.getDiscount() == null) order.setDiscount(BigDecimal.ZERO);
         if (order.getStatus() == null) order.setStatus(Order.OrderStatus.PENDING);
         if (order.getPaymentStatus() == null) order.setPaymentStatus(Order.PaymentStatus.UNPAID);
+        // ⭐ VAT defaults
+        if (order.getVatEnabled() == null) order.setVatEnabled(false);
+        if (order.getVatAmount() == null) order.setVatAmount(BigDecimal.ZERO);
 
-        // Save order first
         Order savedOrder = orderRepository.save(order);
 
         if (items != null && !items.isEmpty()) {
-            // ✅ Process all items
             for (OrderItem item : items) {
                 item.setOrder(savedOrder);
 
-                // Initialize defaults
                 if (item.getDiscount() == null) item.setDiscount(BigDecimal.ZERO);
                 if (item.getUnitPrice() == null) item.setUnitPrice(BigDecimal.ZERO);
                 if (item.getQuantity() == null) item.setQuantity(1);
@@ -138,24 +111,17 @@ public class OrderService {
                     item.setStockDeductionStatus(OrderItem.StockDeductionStatus.PENDING);
                 }
 
-                // Load product if needed
                 if (item.getProduct() != null && item.getProduct().getProductId() != null) {
                     loadProductInfo(item, item.getProduct().getProductId());
                 } else if (item.getProductSku() != null && !item.getProductSku().trim().isEmpty()) {
                     loadProductInfoBySku(item, item.getProductSku());
                 }
 
-                // ✅ คำนวณ totals ก่อนเพิ่มเข้า collection
                 item.calculateTotals();
-
-                // ⭐ เพิ่มเข้า collection เดิม
                 savedOrder.getOrderItems().add(item);
             }
 
-            // ✅ คำนวณยอดรวมของ order
             savedOrder.calculateTotals();
-
-            // Save order (cascade จะ save items ด้วย)
             savedOrder = orderRepository.save(savedOrder);
         }
 
@@ -163,59 +129,38 @@ public class OrderService {
     }
 
     // ============================================
-    // Update Order - FIXED ORPHAN REMOVAL ERROR
+    // Update Order
     // ============================================
 
-    /**
-     * ✅ แก้ไข: จัดการ items อย่างถูกต้องกับ Orphan Removal
-     * @param id Order ID
-     * @param orderDetails ข้อมูล order ที่จะอัพเดท
-     * @param newItems รายการสินค้าใหม่ (ถ้ามี)
-     */
     @Transactional
     public Order updateOrder(Long id, Order orderDetails, List<OrderItem> newItems) {
         Order order = orderRepository.findByIdWithItems(id)
                 .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
 
-        // Update order fields
         updateOrderFields(order, orderDetails);
         validateOrder(order);
 
-        // ✅ จัดการ items ถ้ามีการส่งมา
         if (newItems != null && !newItems.isEmpty()) {
-            // ⭐ วิธีที่ถูกต้อง: Modify collection เดิม ไม่ใช่สร้างใหม่
-
-            // 1. Clear items เดิมทั้งหมด (orphan removal จะลบจาก DB)
             order.getOrderItems().clear();
-
-            // 2. Flush เพื่อให้แน่ใจว่าลบจาก DB แล้ว
             orderItemRepository.flush();
 
-            // 3. เตรียม items ใหม่
             for (OrderItem item : newItems) {
-                item.setOrder(order); // Set reference กลับไปหา order
+                item.setOrder(order);
 
-                // Initialize defaults
                 if (item.getDiscount() == null) item.setDiscount(BigDecimal.ZERO);
                 if (item.getUnitPrice() == null) item.setUnitPrice(BigDecimal.ZERO);
                 if (item.getQuantity() == null) item.setQuantity(1);
 
-                // Load product info
                 if (item.getProduct() != null && item.getProduct().getProductId() != null) {
                     loadProductInfo(item, item.getProduct().getProductId());
                 } else if (item.getProductSku() != null && !item.getProductSku().trim().isEmpty()) {
                     loadProductInfoBySku(item, item.getProductSku());
                 }
 
-                // คำนวณ totals
                 item.calculateTotals();
-
-                // ⭐ เพิ่มเข้า collection เดิม (ไม่ใช่ setOrderItems)
                 order.getOrderItems().add(item);
             }
-
         } else {
-            // ✅ ถ้าไม่ได้ส่ง items มา ให้คำนวณ items ที่มีอยู่
             if (order.getOrderItems() != null && !order.getOrderItems().isEmpty()) {
                 for (OrderItem item : order.getOrderItems()) {
                     item.calculateTotals();
@@ -223,16 +168,10 @@ public class OrderService {
             }
         }
 
-        // ✅ คำนวณยอดรวมของ order
         order.calculateTotals();
-
-        // Save order (cascade จะ save items ด้วย)
         return orderRepository.save(order);
     }
 
-    /**
-     * ⭐ Overload method สำหรับ backward compatibility
-     */
     @Transactional
     public Order updateOrder(Long id, Order orderDetails) {
         return updateOrder(id, orderDetails, null);
@@ -252,30 +191,36 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    /**
-     * ⭐ แก้ไข: อัพเดท Payment Status และสร้าง Transaction เมื่อชำระเงิน
-     */
-    public Order updatePaymentStatus(Long id, Order.PaymentStatus paymentStatus) {
+    public Order updatePaymentStatus(Long id, Order.PaymentStatus paymentStatus, LocalDateTime paymentDate) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
         Order.PaymentStatus oldStatus = order.getPaymentStatus();
         order.setPaymentStatus(paymentStatus);
-        order.setUpdatedDate(LocalDateTime.now());
 
+        if (paymentStatus == Order.PaymentStatus.PAID && paymentDate != null) {
+            order.setPaymentDate(paymentDate);
+        } else if (paymentStatus == Order.PaymentStatus.PAID && paymentDate == null) {
+            order.setPaymentDate(LocalDateTime.now());
+        }
+
+        order.setUpdatedDate(LocalDateTime.now());
         Order savedOrder = orderRepository.save(order);
 
-        // ⭐ ถ้าเปลี่ยนจาก UNPAID -> PAID ให้สร้าง Transaction อัตโนมัติ
-        if (oldStatus != Order.PaymentStatus.PAID &&
-                paymentStatus == Order.PaymentStatus.PAID) {
+        if (oldStatus != Order.PaymentStatus.PAID && paymentStatus == Order.PaymentStatus.PAID) {
             try {
-                transactionService.createOrderPaymentTransaction(savedOrder);
+                transactionService.createOrderPaymentTransaction(savedOrder, savedOrder.getPaymentDate());
             } catch (Exception e) {
-                System.err.println("Failed to create transaction for order " + savedOrder.getOrderNumber() + ": " + e.getMessage());
+                System.err.println("Failed to create transaction for order " +
+                        savedOrder.getOrderNumber() + ": " + e.getMessage());
             }
         }
 
         return savedOrder;
+    }
+
+    public Order updatePaymentStatus(Long id, Order.PaymentStatus paymentStatus) {
+        return updatePaymentStatus(id, paymentStatus, null);
     }
 
     // ============================================
@@ -286,8 +231,6 @@ public class OrderService {
         if (!orderRepository.existsById(id)) {
             throw new RuntimeException("Order not found");
         }
-
-        // ✅ Cascade delete จะลบ items อัตโนมัติถ้าตั้งค่าถูกต้อง
         orderRepository.deleteById(id);
     }
 
@@ -303,7 +246,6 @@ public class OrderService {
         order.setStatus(Order.OrderStatus.CANCELLED);
         order.setUpdatedDate(LocalDateTime.now());
 
-        // Update item statuses
         if (order.getOrderItems() != null) {
             for (OrderItem item : order.getOrderItems()) {
                 item.setStockDeductionStatus(OrderItem.StockDeductionStatus.CANCELLED);
@@ -326,18 +268,15 @@ public class OrderService {
 
         if (item.getDiscount() == null) item.setDiscount(BigDecimal.ZERO);
 
-        // Load product info
         if (item.getProduct() != null && item.getProduct().getProductId() != null) {
             loadProductInfo(item, item.getProduct().getProductId());
         } else if (item.getProductSku() != null) {
             loadProductInfoBySku(item, item.getProductSku());
         }
 
-        // Calculate item totals
         item.calculateTotals();
         OrderItem savedItem = orderItemRepository.save(item);
 
-        // Update order totals
         order.calculateTotals();
         orderRepository.save(order);
 
@@ -351,7 +290,6 @@ public class OrderService {
         Order order = item.getOrder();
         orderItemRepository.deleteById(itemId);
 
-        // Reload order with remaining items
         order = orderRepository.findByIdWithItems(order.getOrderId())
                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
@@ -363,9 +301,6 @@ public class OrderService {
     // Helper Methods
     // ============================================
 
-    /**
-     * ✅ แยก logic การโหลด product ออกมา
-     */
     private void loadProductInfo(OrderItem item, Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
@@ -379,9 +314,6 @@ public class OrderService {
         }
     }
 
-    /**
-     * ✅ โหลด product ด้วย SKU
-     */
     private void loadProductInfoBySku(OrderItem item, String sku) {
         Optional<Product> productOpt = productRepository.findBySku(sku);
         if (productOpt.isPresent()) {
@@ -403,10 +335,7 @@ public class OrderService {
             case TIKTOK -> "TIK";
             case MANUAL -> "MAN";
         };
-
-        String timestamp = LocalDateTime.now().format(
-                DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
         return prefix + "-" + timestamp;
     }
 
@@ -414,7 +343,6 @@ public class OrderService {
         if (order.getSource() == null) {
             throw new IllegalArgumentException("Order source is required");
         }
-
         if (order.getCustomerName() == null || order.getCustomerName().trim().isEmpty()) {
             order.setCustomerName("ลูกค้า - " + order.getOrderNumber());
         }
@@ -443,6 +371,12 @@ public class OrderService {
             order.setNotes(details.getNotes());
         if (details.getTrackingNumber() != null)
             order.setTrackingNumber(details.getTrackingNumber());
+
+        // ⭐ VAT fields
+        if (details.getVatEnabled() != null)
+            order.setVatEnabled(details.getVatEnabled());
+        if (details.getVatRate() != null)
+            order.setVatRate(details.getVatRate());
 
         order.setUpdatedDate(LocalDateTime.now());
     }

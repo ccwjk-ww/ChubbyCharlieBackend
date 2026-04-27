@@ -3,10 +3,8 @@ package com.example.server.controller;
 import com.example.server.dto.*;
 import com.example.server.entity.*;
 import com.example.server.mapper.ProductMapper;
-import com.example.server.respository.ChinaStockRepository;
-import com.example.server.respository.ProductRepository;
-import com.example.server.respository.StockLotRepository;
-import com.example.server.respository.ThaiStockRepository;
+import com.example.server.respository.*;
+import com.example.server.service.ProductIngredientService;
 import com.example.server.service.ProductService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,11 +16,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/products")
@@ -50,6 +50,15 @@ public class ProductController {
     @Autowired
     private ProductRepository productRepository;
 
+    @Autowired
+    private ProductIngredientService ingredientService;
+
+    @Autowired
+    private ProductIngredientStockAllocationRepository allocationRepository;
+
+    @Autowired
+    private  ProductIngredientRepository productIngredientRepository;
+
     @Value("${file.upload-dir:/var/www/images/products}")
     private String uploadDir;
 
@@ -58,6 +67,17 @@ public class ProductController {
     // ============================================
     // GET Endpoints
     // ============================================
+    @GetMapping("/by-sku/{sku}")
+    public ResponseEntity<?> findBySku(@PathVariable String sku) {
+        return productRepository.findBySku(sku)
+                .map(p -> ResponseEntity.ok(Map.of(
+                        "found", true,
+                        "productId", p.getProductId(),
+                        "productName", p.getProductName(),
+                        "sku", p.getSku()
+                )))
+                .orElse(ResponseEntity.ok(Map.of("found", false, "sku", sku)));
+    }
 
     @GetMapping("/stock-options")
     public ResponseEntity<List<StockOptionDTO>> getAvailableStockItems() {
@@ -72,6 +92,7 @@ public class ProductController {
                 option.setName(stock.getName());
                 option.setType("CHINA");
                 option.setUnitCost(stock.getFinalPricePerPair());
+                option.setAvailableQuantity(stock.getQuantity());
                 option.setStatus(stock.getStatus().name());
                 option.setStockLotId(stock.getStockLotId());
 
@@ -91,6 +112,7 @@ public class ProductController {
                 option.setName(stock.getName());
                 option.setType("THAI");
                 option.setUnitCost(stock.getPricePerUnitWithShipping());
+                option.setAvailableQuantity(stock.getQuantity());
                 option.setStatus(stock.getStatus().name());
                 option.setStockLotId(stock.getStockLotId());
 
@@ -154,9 +176,18 @@ public class ProductController {
             ProductCreateRequestDTO request = objectMapper.readValue(productJson, ProductCreateRequestDTO.class);
 
             System.out.println("📦 Creating product: " + request.getProductName());
+            System.out.println("📋 Ingredients count: " + (request.getIngredients() != null ? request.getIngredients().size() : 0));
+
+            // ⭐ ตรวจสอบว่ามี Multi-Lot ingredients หรือไม่
+            boolean hasMultiLot = request.getIngredients() != null &&
+                    request.getIngredients().stream()
+                            .anyMatch(ing -> "MULTI_LOT".equals(ing.getAllocationMode()));
+
+            System.out.println("🔍 Has Multi-Lot ingredients: " + hasMultiLot);
 
             Product product = productMapper.toProduct(request);
 
+            // จัดการรูปภาพ
             if (image != null && !image.isEmpty()) {
                 String imagePath = saveImage(image);
                 product.setImageUrl(imagePath);
@@ -165,14 +196,28 @@ public class ProductController {
                 product.setImageUrl(DEFAULT_IMAGE_URL);
             }
 
-            List<ProductIngredient> ingredients = null;
-            if (request.getIngredients() != null && !request.getIngredients().isEmpty()) {
-                ingredients = productMapper.toProductIngredients(request.getIngredients());
+            Product savedProduct;
+
+            if (hasMultiLot) {
+                // ⭐ ใช้ method ที่รองรับ Multi-Lot
+                System.out.println("🔄 Using Multi-Lot creation method");
+                savedProduct = productService.createProductWithMultiLotIngredients(
+                        product,
+                        request.getIngredients()
+                );
+            } else {
+                // ใช้ method แบบเดิมสำหรับ Single mode
+                System.out.println("🔄 Using Single mode creation method");
+                List<ProductIngredient> ingredients = null;
+                if (request.getIngredients() != null && !request.getIngredients().isEmpty()) {
+                    ingredients = productMapper.toProductIngredients(request.getIngredients());
+                }
+                savedProduct = productService.createProduct(product, ingredients);
             }
 
-            Product savedProduct = productService.createProduct(product, ingredients);
-
             ProductDTO dto = productMapper.toProductDTO(savedProduct);
+            System.out.println("✅ Product created successfully with ID: " + savedProduct.getProductId());
+
             return ResponseEntity.status(HttpStatus.CREATED).body(dto);
 
         } catch (Exception e) {
@@ -180,88 +225,11 @@ public class ProductController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "error", "Failed to create product",
-                            "message", e.getMessage()
+                            "message", e.getMessage(),
+                            "details", e.toString()
                     ));
         }
     }
-
-//    // ============================================
-//    // ⭐ UPDATE Product with Ingredients Support
-//    // ============================================
-//    @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
-//    public ResponseEntity<?> updateProduct(
-//            @PathVariable Long id,
-//            @RequestPart("product") String productJson,
-//            @RequestPart(value = "image", required = false) MultipartFile image) {
-//
-//        try {
-//            System.out.println("📝 Updating product ID: " + id);
-//            System.out.println("📄 Product JSON: " + productJson);
-//
-//            // 1. Parse JSON เป็น ProductCreateRequestDTO (มี ingredients)
-//            ProductCreateRequestDTO request = objectMapper.readValue(productJson, ProductCreateRequestDTO.class);
-//
-//            // 2. ตรวจสอบว่า Product มีอยู่จริง
-//            Product existingProduct = productService.getProductById(id)
-//                    .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-//
-//            System.out.println("✅ Found existing product: " + existingProduct.getProductName());
-//
-//            // 3. สร้าง Product object ที่จะอัปเดต
-//            Product productDetails = new Product();
-//            productDetails.setProductName(request.getProductName());
-//            productDetails.setDescription(request.getDescription());
-//            productDetails.setSku(request.getSku());
-//            productDetails.setCategory(request.getCategory());
-//            productDetails.setSellingPrice(request.getSellingPrice());
-//            productDetails.setStatus(existingProduct.getStatus()); // เก็บ status เดิม
-//
-//            // 4. จัดการรูปภาพ
-//            if (image != null && !image.isEmpty()) {
-//                if (!existingProduct.isUsingDefaultImage()) {
-//                    deleteOldImage(existingProduct.getImageUrl());
-//                }
-//
-//                String newImagePath = saveImage(image);
-//                productDetails.setImageUrl(newImagePath);
-//                System.out.println("✅ New image uploaded: " + newImagePath);
-//            } else {
-//                productDetails.setImageUrl(existingProduct.getImageUrl());
-//                System.out.println("ℹ️ Keeping existing image");
-//            }
-//
-//            // 5. ⭐ แปลง Ingredients
-//            List<ProductIngredient> newIngredients = null;
-//            if (request.getIngredients() != null && !request.getIngredients().isEmpty()) {
-//                newIngredients = productMapper.toProductIngredients(request.getIngredients());
-//                System.out.println("📦 New ingredients count: " + newIngredients.size());
-//            }
-//
-//            // 6. ⭐ อัปเดต Product พร้อม Ingredients
-//            Product updatedProduct = productService.updateProductWithIngredients(id, productDetails, newIngredients);
-//
-//            System.out.println("✅ Product updated successfully");
-//
-//            // 7. Return DTO
-//            ProductDTO dto = productMapper.toProductDTO(updatedProduct);
-//            return ResponseEntity.ok(dto);
-//
-//        } catch (RuntimeException e) {
-//            System.err.println("❌ Product not found: " + e.getMessage());
-//            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-//                    .body(Map.of(
-//                            "error", "Product not found",
-//                            "message", e.getMessage()
-//                    ));
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-//                    .body(Map.of(
-//                            "error", "Failed to update product",
-//                            "message", e.getMessage()
-//                    ));
-//        }
-//    }
 
     @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
     public ResponseEntity<?> updateProduct(
@@ -288,20 +256,18 @@ public class ProductController {
             productDetails.setCategory(request.getCategory());
             productDetails.setSellingPrice(request.getSellingPrice());
 
-            // ⭐ จัดการ status
+            // จัดการ status
             if (request.getStatus() != null && !request.getStatus().isEmpty()) {
                 try {
                     Product.ProductStatus newStatus = Product.ProductStatus.valueOf(request.getStatus());
                     productDetails.setStatus(newStatus);
                     System.out.println("📊 Setting status to: " + newStatus);
                 } catch (IllegalArgumentException e) {
-                    System.err.println("⚠️ Invalid status: " + request.getStatus() + ", keeping existing status");
+                    System.err.println("⚠️ Invalid status: " + request.getStatus());
                     productDetails.setStatus(existingProduct.getStatus());
                 }
             } else {
-                // ถ้าไม่ส่ง status มา ให้เก็บ status เดิม
                 productDetails.setStatus(existingProduct.getStatus());
-                System.out.println("📊 Keeping existing status: " + existingProduct.getStatus());
             }
 
             // จัดการรูปภาพ
@@ -314,18 +280,96 @@ public class ProductController {
                 System.out.println("✅ New image uploaded: " + newImagePath);
             } else {
                 productDetails.setImageUrl(existingProduct.getImageUrl());
-                System.out.println("ℹ️ Keeping existing image");
             }
 
-            // แปลง Ingredients
-            List<ProductIngredient> newIngredients = null;
-            if (request.getIngredients() != null && !request.getIngredients().isEmpty()) {
-                newIngredients = productMapper.toProductIngredients(request.getIngredients());
-                System.out.println("📦 New ingredients count: " + newIngredients.size());
+            // ⭐ ตรวจสอบ Multi-Lot
+            boolean hasMultiLot = request.getIngredients() != null &&
+                    request.getIngredients().stream()
+                            .anyMatch(ing -> "MULTI_LOT".equals(ing.getAllocationMode()));
+
+            System.out.println("🔍 Has Multi-Lot ingredients: " + hasMultiLot);
+            System.out.println("📦 Ingredients count: " + (request.getIngredients() != null ? request.getIngredients().size() : 0));
+
+            // ลบ ingredients เก่าทั้งหมด
+            List<ProductIngredient> oldIngredients = productIngredientRepository.findByProductProductId(id);
+            if (!oldIngredients.isEmpty()) {
+                System.out.println("🗑️ Deleting " + oldIngredients.size() + " old ingredients");
+                productIngredientRepository.deleteAll(oldIngredients);
+                productIngredientRepository.flush();
             }
 
-            // อัปเดต Product พร้อม Ingredients
-            Product updatedProduct = productService.updateProductWithIngredients(id, productDetails, newIngredients);
+            // อัปเดต product details
+            productService.updateProduct(id, productDetails);
+
+            Product updatedProduct;
+
+            if (hasMultiLot) {
+                // ⭐ สร้าง ingredients ใหม่แบบ Multi-Lot
+                System.out.println("🔄 Creating Multi-Lot ingredients");
+
+                Product product = productService.getProductById(id)
+                        .orElseThrow(() -> new RuntimeException("Product not found"));
+
+                for (ProductIngredientRequestDTO ingReq : request.getIngredients()) {
+                    if ("MULTI_LOT".equals(ingReq.getAllocationMode())) {
+                        System.out.println("  📌 Creating Multi-Lot ingredient: " + ingReq.getIngredientName());
+
+                        ingredientService.createMultiLotIngredient(
+                                product,
+                                ingReq.getIngredientName(),
+                                ingReq.getRequiredQuantity(),
+                                ingReq.getUnit(),
+                                ingReq.getStockAllocations().stream()
+                                        .map(alloc -> {
+                                            ProductIngredientService.StockAllocationRequest req =
+                                                    new ProductIngredientService.StockAllocationRequest();
+                                            req.setStockItemId(alloc.getStockItemId());
+                                            req.setAllocatedQuantity(alloc.getAllocatedQuantity());
+                                            req.setAllocationPriority(alloc.getAllocationPriority());
+                                            return req;
+                                        })
+                                        .collect(Collectors.toList()),
+                                ingReq.getNotes()
+                        );
+                    } else {
+                        // Single mode
+                        System.out.println("  📌 Creating Single mode ingredient: " + ingReq.getIngredientName());
+                        ProductIngredient ingredient = productMapper.toProductIngredient(ingReq);
+                        ingredient.setProduct(product);
+
+                        // ⭐ คำนวณต้นทุนสำหรับ Single mode
+                        if (ingredient.getStockItem() != null) {
+                            BigDecimal unitCost = getStockUnitCost(ingredient.getStockItem());
+                            ingredient.setCostPerUnit(unitCost);
+                            ingredient.setTotalCost(unitCost.multiply(ingredient.getRequiredQuantity()));
+                        }
+
+                        productIngredientRepository.save(ingredient);
+                    }
+                }
+
+                // ⭐ คำนวณต้นทุนรวมหลังจากสร้าง ingredients ทั้งหมดแล้ว
+                System.out.println("🧮 Recalculating product cost after update...");
+                productService.recalculateProductCost(id);
+
+                updatedProduct = productService.getProductById(id)
+                        .orElseThrow(() -> new RuntimeException("Product not found"));
+
+                System.out.println("✅ Final Updated Product Cost: " + updatedProduct.getCalculatedCost());
+
+            } else {
+                // ⭐ แบบเดิม (Single mode)
+                System.out.println("🔄 Creating Single mode ingredients");
+                List<ProductIngredient> newIngredients = null;
+                if (request.getIngredients() != null && !request.getIngredients().isEmpty()) {
+                    newIngredients = productMapper.toProductIngredients(request.getIngredients());
+                }
+
+                updatedProduct = productService.updateProductWithIngredients(id, productDetails, newIngredients);
+            }
+
+            // คำนวณต้นทุนใหม่
+            productService.recalculateProductCost(id);
 
             System.out.println("✅ Product updated successfully with status: " + updatedProduct.getStatus());
 
@@ -333,7 +377,8 @@ public class ProductController {
             return ResponseEntity.ok(dto);
 
         } catch (RuntimeException e) {
-            System.err.println("❌ Product not found: " + e.getMessage());
+            System.err.println("❌ Error: " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of(
                             "error", "Product not found",
@@ -344,13 +389,29 @@ public class ProductController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "error", "Failed to update product",
-                            "message", e.getMessage()
+                            "message", e.getMessage(),
+                            "details", e.toString()
                     ));
         }
     }
 
+    private BigDecimal getStockUnitCost(StockBase stock) {
+        if (stock instanceof ChinaStock) {
+            ChinaStock chinaStock = (ChinaStock) stock;
+            return chinaStock.getFinalPricePerPair() != null ?
+                    chinaStock.getFinalPricePerPair() :
+                    chinaStock.calculateFinalPrice();
+        } else if (stock instanceof ThaiStock) {
+            ThaiStock thaiStock = (ThaiStock) stock;
+            return thaiStock.getPricePerUnitWithShipping() != null ?
+                    thaiStock.getPricePerUnitWithShipping() :
+                    thaiStock.calculateFinalPrice();
+        }
+        return BigDecimal.ZERO;
+    }
+
     /**
-     * ⭐ เพิ่ม: Endpoint สำหรับอัปเดตเฉพาะสถานะ
+     * ⭐ Endpoint สำหรับอัปเดตเฉพาะสถานะ
      */
     @PatchMapping("/{id}/status")
     public ResponseEntity<?> updateProductStatus(
@@ -363,7 +424,6 @@ public class ProductController {
             Product.ProductStatus newStatus = Product.ProductStatus.valueOf(status);
             product.setStatus(newStatus);
 
-            // ⭐ บันทึกโดยไม่ยุ่งกับ ingredients
             Product updatedProduct = productRepository.save(product);
 
             System.out.println("✅ Status updated to: " + newStatus);
@@ -501,6 +561,201 @@ public class ProductController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // ============================================
+    // ⭐ Multi-Lot Ingredient Endpoints
+    // ============================================
+
+    /**
+     * ⭐ ดึงข้อมูล Stock Allocations ของ Ingredient
+     */
+    @GetMapping("/ingredients/{ingredientId}/allocations")
+    public ResponseEntity<List<ProductIngredientAllocationDTO>> getIngredientAllocations(
+            @PathVariable Long ingredientId) {
+        try {
+            List<ProductIngredientStockAllocation> allocations =
+                    allocationRepository.findByProductIngredientIngredientId(ingredientId);
+
+            List<ProductIngredientAllocationDTO> dtos = allocations.stream()
+                    .map(this::toAllocationDTO)
+                    .collect(Collectors.toList());
+
+            return ResponseEntity.ok(dtos);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * ⭐ อัปเดต Stock Allocations
+     */
+    @PutMapping("/ingredients/{ingredientId}/allocations")
+    public ResponseEntity<?> updateIngredientAllocations(
+            @PathVariable Long ingredientId,
+            @RequestBody List<StockAllocationRequestDTO> allocations) {
+        try {
+            List<ProductIngredientService.StockAllocationRequest> requests =
+                    allocations.stream()
+                            .map(this::toServiceRequest)
+                            .collect(Collectors.toList());
+
+            ProductIngredient updated = ingredientService.updateMultiLotAllocations(
+                    ingredientId, requests);
+
+            return ResponseEntity.ok(productMapper.toProductIngredientDTO(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * ⭐ ดึง Stock Options พร้อมข้อมูล Lot (ค้นหาตามชื่อ)
+     */
+    @GetMapping("/stock-options/by-name/{stockName}")
+    public ResponseEntity<List<StockOptionDTO>> getStockOptionsByName(
+            @PathVariable String stockName) {
+        try {
+            List<StockOptionDTO> options = new ArrayList<>();
+
+            // China Stocks
+            List<ChinaStock> chinaStocks = chinaStockRepository.searchByKeyword(stockName);
+            for (ChinaStock stock : chinaStocks) {
+                if (stock.getStatus() == ChinaStock.StockStatus.ACTIVE && stock.getQuantity() > 0) {
+                    StockOptionDTO option = new StockOptionDTO();
+                    option.setStockItemId(stock.getStockItemId());
+                    option.setName(stock.getName());
+                    option.setType("CHINA");
+                    option.setUnitCost(stock.getFinalPricePerPair());
+                    option.setAvailableQuantity(stock.getQuantity());
+                    option.setStatus(stock.getStatus().name());
+                    option.setStockLotId(stock.getStockLotId());
+
+                    if (stock.getStockLotId() != null) {
+                        stockLotRepository.findById(stock.getStockLotId()).ifPresent(lot ->
+                                option.setLotName(lot.getLotName())
+                        );
+                    }
+                    options.add(option);
+                }
+            }
+
+            // Thai Stocks
+            List<ThaiStock> thaiStocks = thaiStockRepository.searchByKeyword(stockName);
+            for (ThaiStock stock : thaiStocks) {
+                if (stock.getStatus() == ThaiStock.StockStatus.ACTIVE && stock.getQuantity() > 0) {
+                    StockOptionDTO option = new StockOptionDTO();
+                    option.setStockItemId(stock.getStockItemId());
+                    option.setName(stock.getName());
+                    option.setType("THAI");
+                    option.setUnitCost(stock.getPricePerUnitWithShipping());
+                    option.setAvailableQuantity(stock.getQuantity());
+                    option.setStatus(stock.getStatus().name());
+                    option.setStockLotId(stock.getStockLotId());
+
+                    if (stock.getStockLotId() != null) {
+                        stockLotRepository.findById(stock.getStockLotId()).ifPresent(lot ->
+                                option.setLotName(lot.getLotName())
+                        );
+                    }
+                    options.add(option);
+                }
+            }
+
+            // เรียงตาม Lot Name แล้วชื่อ
+            options.sort(Comparator.comparing(StockOptionDTO::getLotName,
+                            Comparator.nullsLast(Comparator.naturalOrder()))
+                    .thenComparing(StockOptionDTO::getName));
+
+            return ResponseEntity.ok(options);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // ============================================
+    // ⭐ Helper Methods สำหรับ Multi-Lot
+    // ============================================
+
+    /**
+     * แปลง ProductIngredientStockAllocation เป็น DTO
+     */
+    private ProductIngredientAllocationDTO toAllocationDTO(ProductIngredientStockAllocation allocation) {
+        ProductIngredientAllocationDTO dto = new ProductIngredientAllocationDTO();
+        dto.setAllocationId(allocation.getAllocationId());
+        dto.setStockItemId(allocation.getStockItem().getStockItemId());
+        dto.setStockItemName(allocation.getStockItem().getName());
+        dto.setStockType(allocation.getStockType());
+        dto.setAllocatedQuantity(allocation.getAllocatedQuantity());
+        dto.setAllocationPriority(allocation.getAllocationPriority());
+        dto.setCostPerUnit(allocation.getCostPerUnit());
+        dto.setTotalCost(allocation.getTotalCost());
+        dto.setAvailableQuantity(allocation.getStockItem().getQuantity());
+
+        // ดึงข้อมูล Lot
+        if (allocation.getStockItem().getStockLotId() != null) {
+            stockLotRepository.findById(allocation.getStockItem().getStockLotId())
+                    .ifPresent(lot -> {
+                        dto.setLotName(lot.getLotName());
+                        dto.setStockLotId(lot.getStockLotId());
+                    });
+        }
+
+        return dto;
+    }
+
+    /**
+     * แปลง DTO เป็น Service Request
+     */
+    private ProductIngredientService.StockAllocationRequest toServiceRequest(
+            StockAllocationRequestDTO dto) {
+        ProductIngredientService.StockAllocationRequest request =
+                new ProductIngredientService.StockAllocationRequest();
+        request.setStockItemId(dto.getStockItemId());
+        request.setAllocatedQuantity(dto.getAllocatedQuantity());
+        request.setAllocationPriority(dto.getAllocationPriority());
+        return request;
+    }
+
+    /**
+     * ⭐ DTO สำหรับรับ Request (Inner Class)
+     */
+    public static class StockAllocationRequestDTO {
+        private Long stockItemId;
+        private java.math.BigDecimal allocatedQuantity;
+        private Integer allocationPriority;
+
+        // Getters & Setters
+        public Long getStockItemId() {
+            return stockItemId;
+        }
+
+        public void setStockItemId(Long stockItemId) {
+            this.stockItemId = stockItemId;
+        }
+
+        public java.math.BigDecimal getAllocatedQuantity() {
+            return allocatedQuantity;
+        }
+
+        public void setAllocatedQuantity(java.math.BigDecimal allocatedQuantity) {
+            this.allocatedQuantity = allocatedQuantity;
+        }
+
+        public Integer getAllocationPriority() {
+            return allocationPriority;
+        }
+
+        public void setAllocationPriority(Integer allocationPriority) {
+            this.allocationPriority = allocationPriority;
         }
     }
 }

@@ -1,7 +1,8 @@
-// com.example.server.controller.EmployeeController.java
 package com.example.server.controller;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -33,14 +34,27 @@ public class EmployeeController {
     }
 
     @PostMapping
-    public Employee createEmployee(@RequestBody Employee employee) {
-        return employeeService.createEmployee(employee);
+    public ResponseEntity<?> createEmployee(@RequestBody Employee employee) {
+        try {
+            Employee createdEmployee = employeeService.createEmployee(employee);
+            return ResponseEntity.ok(createdEmployee);
+        } catch (IllegalArgumentException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Employee> updateEmployee(@PathVariable Long id, @RequestBody Employee employeeDetails) {
-        Employee updatedEmployee = employeeService.updateEmployee(id, employeeDetails);
-        return ResponseEntity.ok(updatedEmployee);
+    public ResponseEntity<?> updateEmployee(@PathVariable Long id, @RequestBody Employee employeeDetails) {
+        try {
+            Employee updatedEmployee = employeeService.updateEmployee(id, employeeDetails);
+            return ResponseEntity.ok(updatedEmployee);
+        } catch (RuntimeException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
     }
 
     @DeleteMapping("/{id}")
@@ -52,5 +66,27 @@ public class EmployeeController {
     @GetMapping("/search")
     public List<Employee> searchEmployees(@RequestParam String name) {
         return employeeService.searchEmployeesByName(name);
+    }
+
+    // ⭐ ตรวจสอบว่า username ซ้ำหรือไม่
+    @GetMapping("/check-username")
+    public ResponseEntity<Map<String, Boolean>> checkUsername(
+            @RequestParam String username,
+            @RequestParam(required = false) Long excludeId) {
+        boolean exists = employeeService.isUsernameExists(username, excludeId);
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("exists", exists);
+        return ResponseEntity.ok(response);
+    }
+
+    // ⭐ ตรวจสอบว่า email ซ้ำหรือไม่
+    @GetMapping("/check-email")
+    public ResponseEntity<Map<String, Boolean>> checkEmail(
+            @RequestParam String email,
+            @RequestParam(required = false) Long excludeId) {
+        boolean exists = employeeService.isEmailExists(email, excludeId);
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("exists", exists);
+        return ResponseEntity.ok(response);
     }
 }

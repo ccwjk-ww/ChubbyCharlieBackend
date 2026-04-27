@@ -33,6 +33,16 @@ public class EmployeeService {
     }
 
     public Employee createEmployee(Employee employee) {
+        // ⭐ ตรวจสอบ username ซ้ำ
+        if (employeeRepository.existsByUsername(employee.getUsername())) {
+            throw new IllegalArgumentException("Username already exists");
+        }
+
+        // ⭐ ตรวจสอบ email ซ้ำ
+        if (employeeRepository.existsByEmail(employee.getEmail())) {
+            throw new IllegalArgumentException("Email already exists");
+        }
+
         employee.setPassword(passwordEncoder.encode(employee.getPassword()));
 
         if ("DAILY".equalsIgnoreCase(employee.getEmpType())) {
@@ -53,6 +63,16 @@ public class EmployeeService {
     public Employee updateEmployee(Long id, Employee employeeDetails) {
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        // ⭐ ตรวจสอบ username ซ้ำ (ยกเว้น employee ที่กำลัง edit)
+        if (employeeRepository.existsByUsernameAndEmpIdNot(employeeDetails.getUsername(), id)) {
+            throw new IllegalArgumentException("Username already exists");
+        }
+
+        // ⭐ ตรวจสอบ email ซ้ำ (ยกเว้น employee ที่กำลัง edit)
+        if (employeeRepository.existsByEmailAndEmpIdNot(employeeDetails.getEmail(), id)) {
+            throw new IllegalArgumentException("Email already exists");
+        }
 
         employee.setEmpName(employeeDetails.getEmpName());
         employee.setEmpAddress(employeeDetails.getEmpAddress());
@@ -87,5 +107,21 @@ public class EmployeeService {
 
     public List<Employee> searchEmployeesByName(String name) {
         return employeeRepository.findByEmpNameContainingIgnoreCase(name);
+    }
+
+    // ⭐ ตรวจสอบว่า username มีอยู่แล้วหรือไม่
+    public boolean isUsernameExists(String username, Long excludeId) {
+        if (excludeId != null) {
+            return employeeRepository.existsByUsernameAndEmpIdNot(username, excludeId);
+        }
+        return employeeRepository.existsByUsername(username);
+    }
+
+    // ⭐ ตรวจสอบว่า email มีอยู่แล้วหรือไม่
+    public boolean isEmailExists(String email, Long excludeId) {
+        if (excludeId != null) {
+            return employeeRepository.existsByEmailAndEmpIdNot(email, excludeId);
+        }
+        return employeeRepository.existsByEmail(email);
     }
 }

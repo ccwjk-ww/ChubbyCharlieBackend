@@ -26,12 +26,11 @@ public class ThaiStock extends StockBase {
     private BigDecimal pricePerUnitWithShipping;
 
     @Column(precision = 5, scale = 2)
-    private BigDecimal bufferPercentage = BigDecimal.ZERO;
+    private BigDecimal vatPercentage = BigDecimal.ZERO;
 
     @Column
-    private Boolean includeBuffer = false;
+    private Boolean includeVat = false;
 
-    // ⭐ ฟิลด์เดิมที่มีอยู่แล้ว (จากโค้ดเดิม)
     @Column(name = "original_quantity")
     private Integer originalQuantity;
 
@@ -42,104 +41,109 @@ public class ThaiStock extends StockBase {
     private BigDecimal totalCostAtImport;
 
     // ============================================
-    // ⭐ เพิ่ม: Quantity Management Methods
+    // Quantity Management Methods
     // ============================================
 
-    /**
-     * ✅ ดึงจำนวนสินค้าทั้งหมด (ตอนนำเข้า)
-     */
     public Integer getOriginalQuantity() {
         return originalQuantity != null ? originalQuantity : 0;
     }
 
-    /**
-     * ✅ ดึงจำนวนสินค้าคงเหลือ (ปัจจุบัน)
-     */
     public Integer getCurrentQuantity() {
         return getQuantity() != null ? getQuantity() : 0;
     }
 
-    /**
-     * ✅ คำนวณจำนวนสินค้าที่ใช้ไป
-     */
     public Integer getUsedQuantity() {
-        int original = getOriginalQuantity();
-        int current = getCurrentQuantity();
-        return original - current;
+        return getOriginalQuantity() - getCurrentQuantity();
     }
 
-    /**
-     * ✅ คำนวณเปอร์เซ็นต์การใช้งาน
-     */
     public BigDecimal getUsagePercentage() {
         int original = getOriginalQuantity();
-        if (original <= 0) {
-            return BigDecimal.ZERO;
-        }
-
-        int used = getUsedQuantity();
-        return BigDecimal.valueOf(used)
+        if (original <= 0) return BigDecimal.ZERO;
+        return BigDecimal.valueOf(getUsedQuantity())
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(original), 2, RoundingMode.HALF_UP);
     }
 
-    /**
-     * ✅ คำนวณเปอร์เซ็นต์ที่เหลือ
-     */
     public BigDecimal getRemainingPercentage() {
         return BigDecimal.valueOf(100).subtract(getUsagePercentage());
     }
 
     // ============================================
-    // แก้ไข: calculateTotalCost() - ใช้ค่าคงที่
+    // calculateTotalCost()
     // ============================================
     @Override
     public BigDecimal calculateTotalCost() {
-        // ถ้ามีค่า totalCostAtImport แล้ว ใช้ค่าคงที่นั้น
         if (totalCostAtImport != null && totalCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
             return totalCostAtImport;
         }
-
-        // ถ้ายังไม่มี ให้คำนวณ (กรณี Preview/Edit)
-        if (priceTotal == null || shippingCost == null) {
-            return BigDecimal.ZERO;
-        }
+        if (priceTotal == null || shippingCost == null) return BigDecimal.ZERO;
 
         BigDecimal total = priceTotal.add(shippingCost);
-
-        if (Boolean.TRUE.equals(includeBuffer) && bufferPercentage != null && bufferPercentage.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal buffer = total.multiply(bufferPercentage).divide(
-                    BigDecimal.valueOf(100), 3, RoundingMode.HALF_UP);
-            total = total.add(buffer);
+        if (Boolean.TRUE.equals(includeVat) && vatPercentage != null && vatPercentage.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal vat = total.multiply(vatPercentage).divide(BigDecimal.valueOf(100), 3, RoundingMode.HALF_UP);
+            total = total.add(vat);
         }
-
         return total.setScale(3, RoundingMode.HALF_UP);
     }
 
     // ============================================
-    // แก้ไข: calculateFinalPrice() - ใช้ค่าคงที่
+    // calculateFinalPrice() — ราคา/หน่วย ก่อน VAT
     // ============================================
     @Override
     public BigDecimal calculateFinalPrice() {
-        // ถ้ามีค่า unitCostAtImport แล้ว ใช้ค่าคงที่นั้น
         if (unitCostAtImport != null && unitCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
             return unitCostAtImport;
         }
+        if (getQuantity() == null || getQuantity() == 0) return BigDecimal.ZERO;
+        BigDecimal grandTotal = calculateTotalCost();
+        return grandTotal.divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+    }
 
-        // ถ้ายังไม่มี ให้คำนวณ (กรณี Preview/Edit)
-        if (getQuantity() == null || getQuantity() == 0) {
-            return BigDecimal.ZERO;
+    // ============================================
+    // getAverageCostPerUnit() — ราคา/หน่วย ก่อน VAT
+    // ============================================
+    @Override
+    public BigDecimal getAverageCostPerUnit() {
+        if (unitCostAtImport != null && unitCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return unitCostAtImport;
+        }
+        if (pricePerUnitWithShipping != null && pricePerUnitWithShipping.compareTo(BigDecimal.ZERO) > 0) {
+            return pricePerUnitWithShipping;
+        }
+        if (pricePerUnit != null && pricePerUnit.compareTo(BigDecimal.ZERO) > 0) {
+            return pricePerUnit;
+        }
+        return calculateFinalPrice();
+    }
+
+    // ============================================
+    // ⭐ getAverageCostPerUnitWithVat() — ราคา/หน่วย รวม VAT (ถ้ามี)
+    // ใช้สำหรับคำนวณมูลค่าของเสีย
+    // ============================================
+    @Override
+    public BigDecimal getAverageCostPerUnitWithVat() {
+        BigDecimal baseUnit = getAverageCostPerUnit();
+        if (baseUnit == null || baseUnit.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
+
+        // ถ้าไม่มี VAT → คืนราคาปกติ
+        if (!Boolean.TRUE.equals(includeVat) || vatPercentage == null || vatPercentage.compareTo(BigDecimal.ZERO) <= 0) {
+            return baseUnit;
         }
 
-        BigDecimal grandTotal = calculateTotalCost();
-        return grandTotal.divide(
-                BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+        // มี VAT: baseUnit × (1 + vatPct/100)
+        BigDecimal vatMultiplier = BigDecimal.ONE.add(
+                vatPercentage.divide(BigDecimal.valueOf(100), 5, RoundingMode.HALF_UP)
+        );
+        return baseUnit.multiply(vatMultiplier).setScale(3, RoundingMode.HALF_UP);
     }
+
+    // ============================================
+    // Price calculation helpers
+    // ============================================
 
     public BigDecimal calculatePricePerUnit() {
         if (priceTotal != null && getQuantity() != null && getQuantity() > 0) {
-            this.pricePerUnit = priceTotal.divide(
-                    BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+            this.pricePerUnit = priceTotal.divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
         }
         return this.pricePerUnit;
     }
@@ -150,7 +154,7 @@ public class ThaiStock extends StockBase {
     }
 
     // ============================================
-    // แก้ไข: @PrePersist @PreUpdate
+    // @PrePersist @PreUpdate
     // ============================================
     @PrePersist
     @PreUpdate
@@ -158,17 +162,9 @@ public class ThaiStock extends StockBase {
         calculatePricePerUnit();
         calculatePricePerUnitWithShipping();
 
-        // ⭐ บันทึกค่าต้นทุนตอนนำเข้า (ครั้งแรกเท่านั้น)
-        if (originalQuantity == null && getQuantity() != null) {
-            originalQuantity = getQuantity();
-        }
-
-        if (unitCostAtImport == null) {
-            unitCostAtImport = calculateFinalPrice();
-        }
-
-        if (totalCostAtImport == null) {
-            totalCostAtImport = calculateTotalCost();
-        }
+        if (originalQuantity == null && getQuantity() != null) originalQuantity = getQuantity();
+        if (unitCostAtImport == null) unitCostAtImport = calculateFinalPrice();
+        if (totalCostAtImport == null) totalCostAtImport = calculateTotalCost();
+        if (getDefectiveQuantity() == null) setDefectiveQuantity(0);
     }
 }

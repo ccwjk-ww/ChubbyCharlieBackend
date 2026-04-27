@@ -102,59 +102,109 @@ public class ProductCostCalculationService {
     /**
      * ✅ คำนวณต้นทุนรวมของ Product
      */
+    @Transactional
     public BigDecimal calculateProductTotalCost(Product product) {
-        if (product == null) {
-            return BigDecimal.ZERO;
-        }
-
-        // ✅ ดึง Ingredients ทั้งหมดของ Product
         List<ProductIngredient> ingredients = productIngredientRepository
                 .findByProductProductId(product.getProductId());
 
-        if (ingredients == null || ingredients.isEmpty()) {
-            // ถ้าไม่มี Ingredients ให้ตั้งต้นทุนเป็น 0
-            product.setCalculatedCost(BigDecimal.ZERO);
-            product.setProfitMargin(product.getSellingPrice());
-            return BigDecimal.ZERO;
-        }
-
-        // ✅ รวมต้นทุนจากทุก Ingredient
         BigDecimal totalCost = BigDecimal.ZERO;
 
+        System.out.println("💰 Calculating cost for product: " + product.getProductName());
+        System.out.println("📦 Total ingredients: " + ingredients.size());
+
         for (ProductIngredient ingredient : ingredients) {
-            BigDecimal ingredientCost = calculateIngredientCost(ingredient);
-            totalCost = totalCost.add(ingredientCost);
-        }
+            BigDecimal ingredientCost = BigDecimal.ZERO;
 
-        // ✅ ปัดเศษให้เป็น 2 ตำแหน่ง
-        totalCost = totalCost.setScale(2, RoundingMode.HALF_UP);
+            System.out.println("  📌 Ingredient: " + ingredient.getIngredientName());
+            System.out.println("    - Ingredient ID: " + ingredient.getIngredientId());
+            System.out.println("    - Mode: " + ingredient.getAllocationMode());
+            System.out.println("    - Stored Total Cost: " + ingredient.getTotalCost());
+            System.out.println("    - Stored Cost Per Unit: " + ingredient.getCostPerUnit());
 
-        // ✅ บันทึกต้นทุนรวมใน Product
-        product.setCalculatedCost(totalCost);
+            if (ingredient.getAllocationMode() == ProductIngredient.AllocationMode.MULTI_LOT) {
+                // ⭐ Multi-Lot: ใช้ totalCost ที่บันทึกไว้แล้ว
+                if (ingredient.getTotalCost() != null &&
+                        ingredient.getTotalCost().compareTo(BigDecimal.ZERO) > 0) {
 
-        // ✅ คำนวณกำไรและเปอร์เซ็นต์
-        if (product.getSellingPrice() != null) {
-            BigDecimal sellingPrice = product.getSellingPrice();
-            BigDecimal profit = sellingPrice.subtract(totalCost);
+                    ingredientCost = ingredient.getTotalCost();
+                    System.out.println("    ✅ Using stored total cost: " + ingredientCost);
 
-            product.setProfitMargin(profit);
+                } else {
+                    // ⭐ ถ้าไม่มี ให้คำนวณจาก allocations
+                    System.out.println("    ⚠️ No stored cost, calculating from allocations...");
 
-            // ✅ คำนวณเปอร์เซ็นต์กำไร (ถ้าต้องการ)
-            // profitPercentage = (profit / cost) × 100
-            if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal profitPercentage = profit
-                        .divide(totalCost, 4, RoundingMode.HALF_UP)
-                        .multiply(BigDecimal.valueOf(100));
+                    if (ingredient.getStockAllocations() != null &&
+                            !ingredient.getStockAllocations().isEmpty()) {
 
-                // ถ้ามี field profitPercentage ใน Product entity
-                // product.setProfitPercentage(profitPercentage);
+                        for (ProductIngredientStockAllocation allocation : ingredient.getStockAllocations()) {
+                            BigDecimal allocationCost = allocation.getTotalCost() != null ?
+                                    allocation.getTotalCost() : BigDecimal.ZERO;
+
+                            ingredientCost = ingredientCost.add(allocationCost);
+
+                            System.out.println("      → Allocation: " + allocation.getStockItem().getName() +
+                                    " = ฿" + allocationCost);
+                        }
+
+                        // อัปเดต ingredient cost
+                        ingredient.setTotalCost(ingredientCost);
+                        if (ingredient.getRequiredQuantity().compareTo(BigDecimal.ZERO) > 0) {
+                            ingredient.setCostPerUnit(
+                                    ingredientCost.divide(ingredient.getRequiredQuantity(), 4, RoundingMode.HALF_UP)
+                            );
+                        }
+
+                        // ⭐ บันทึก
+                        productIngredientRepository.saveAndFlush(ingredient);
+                        System.out.println("    ✅ Updated and saved ingredient costs");
+                    } else {
+                        System.out.println("    ❌ No allocations found!");
+                    }
+                }
+
+            } else {
+                // ⭐ SINGLE mode
+                if (ingredient.getStockItem() != null) {
+                    BigDecimal unitCost = getStockUnitCost(ingredient.getStockItem());
+                    ingredientCost = unitCost.multiply(ingredient.getRequiredQuantity());
+
+                    // อัปเดต ingredient cost
+                    ingredient.setCostPerUnit(unitCost);
+                    ingredient.setTotalCost(ingredientCost);
+
+                    // ⭐ บันทึก
+                    productIngredientRepository.saveAndFlush(ingredient);
+
+                    System.out.println("    - Unit Cost: ฿" + unitCost);
+                    System.out.println("    - Total Cost: ฿" + ingredientCost);
+                }
             }
-        } else {
-            // ถ้าไม่มีราคาขาย กำไร = 0
-            product.setProfitMargin(BigDecimal.ZERO);
+
+            totalCost = totalCost.add(ingredientCost);
+            System.out.println("    ➜ Running total: ฿" + totalCost);
         }
 
+        System.out.println("💵 Final Total Product Cost: ฿" + totalCost);
         return totalCost;
+    }
+
+    private BigDecimal getStockUnitCost(StockBase stock) {
+        if (stock instanceof ChinaStock) {
+            ChinaStock chinaStock = (ChinaStock) stock;
+            BigDecimal cost = chinaStock.getFinalPricePerPair();
+            if (cost == null || cost.compareTo(BigDecimal.ZERO) == 0) {
+                cost = chinaStock.calculateFinalPrice();
+            }
+            return cost != null ? cost : BigDecimal.ZERO;
+        } else if (stock instanceof ThaiStock) {
+            ThaiStock thaiStock = (ThaiStock) stock;
+            BigDecimal cost = thaiStock.getPricePerUnitWithShipping();
+            if (cost == null || cost.compareTo(BigDecimal.ZERO) == 0) {
+                cost = thaiStock.calculateFinalPrice();
+            }
+            return cost != null ? cost : BigDecimal.ZERO;
+        }
+        return BigDecimal.ZERO;
     }
 
     /**

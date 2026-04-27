@@ -16,6 +16,7 @@ public class OrderDTO {
     private String shippingAddress;
     private LocalDateTime orderDate;
     private LocalDateTime deliveryDate;
+    private LocalDateTime paymentDate; // ⭐ NEW
     private BigDecimal totalAmount;
     private BigDecimal shippingFee;
     private BigDecimal discount;
@@ -28,5 +29,7 @@ public class OrderDTO {
     private LocalDateTime createdDate;
     private LocalDateTime updatedDate;
     private List<OrderItemDTO> orderItems;
+    private Boolean vatEnabled;
+    private BigDecimal vatRate;
+    private BigDecimal vatAmount;
 }
-

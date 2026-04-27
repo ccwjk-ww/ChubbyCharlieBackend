@@ -25,14 +25,11 @@ public class ChinaStockController {
     @Autowired
     private StockMapper stockMapper;
 
-    // Get all China stocks
     @GetMapping
     public List<ChinaStockDTO> getAllChinaStocks() {
-        List<ChinaStock> stocks = chinaStockService.getAllChinaStocks();
-        return stockMapper.toChinaStockDTOList(stocks);
+        return stockMapper.toChinaStockDTOList(chinaStockService.getAllChinaStocks());
     }
 
-    // Get China stock by ID
     @GetMapping("/{id}")
     public ResponseEntity<ChinaStockDTO> getChinaStockById(@PathVariable Long id) {
         Optional<ChinaStock> chinaStock = chinaStockService.getChinaStockById(id);
@@ -40,90 +37,128 @@ public class ChinaStockController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // Get China stocks by status
     @GetMapping("/status/{status}")
     public List<ChinaStockDTO> getChinaStocksByStatus(@PathVariable String status) {
-        try {
-            ChinaStock.StockStatus stockStatus = ChinaStock.StockStatus.valueOf(status.toUpperCase());
-            List<ChinaStock> stocks = chinaStockService.getChinaStocksByStatus(stockStatus);
-            return stockMapper.toChinaStockDTOList(stocks);
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid status: " + status);
-        }
+        ChinaStock.StockStatus stockStatus = ChinaStock.StockStatus.valueOf(status.toUpperCase());
+        return stockMapper.toChinaStockDTOList(chinaStockService.getChinaStocksByStatus(stockStatus));
     }
 
-    // Get China stocks by lot ID
     @GetMapping("/lot/{stockLotId}")
     public List<ChinaStockDTO> getChinaStocksByLot(@PathVariable Long stockLotId) {
-        List<ChinaStock> stocks = chinaStockService.getChinaStocksByLot(stockLotId);
-        return stockMapper.toChinaStockDTOList(stocks);
+        return stockMapper.toChinaStockDTOList(chinaStockService.getChinaStocksByLot(stockLotId));
     }
 
-    // Get total value by lot
     @GetMapping("/lot/{stockLotId}/total-value")
     public ResponseEntity<Map<String, BigDecimal>> getTotalValueByLot(@PathVariable Long stockLotId) {
         BigDecimal totalValue = chinaStockService.getTotalValueByLot(stockLotId);
         return ResponseEntity.ok(Map.of("totalValue", totalValue != null ? totalValue : BigDecimal.ZERO));
     }
 
-    // Search China stocks
     @GetMapping("/search")
     public List<ChinaStockDTO> searchChinaStocks(@RequestParam String keyword) {
-        List<ChinaStock> stocks = chinaStockService.searchChinaStocks(keyword);
-        return stockMapper.toChinaStockDTOList(stocks);
+        return stockMapper.toChinaStockDTOList(chinaStockService.searchChinaStocks(keyword));
     }
 
-    // Create new China stock
     @PostMapping
     public ResponseEntity<ChinaStockDTO> createChinaStock(@RequestBody ChinaStock chinaStock) {
         try {
-            ChinaStock createdChinaStock = chinaStockService.createChinaStock(chinaStock);
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(stockMapper.toChinaStockDTO(createdChinaStock));
+            ChinaStock created = chinaStockService.createChinaStock(chinaStock);
+            return ResponseEntity.status(HttpStatus.CREATED).body(stockMapper.toChinaStockDTO(created));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
     }
 
-    // Update China stock
     @PutMapping("/{id}")
     public ResponseEntity<ChinaStockDTO> updateChinaStock(@PathVariable Long id, @RequestBody ChinaStock chinaStockDetails) {
         try {
-            ChinaStock updatedChinaStock = chinaStockService.updateChinaStock(id, chinaStockDetails);
-            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updatedChinaStock));
+            ChinaStock updated = chinaStockService.updateChinaStock(id, chinaStockDetails);
+            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    // Update China stock status only
     @PatchMapping("/{id}/status")
     public ResponseEntity<ChinaStockDTO> updateChinaStockStatus(@PathVariable Long id, @RequestBody Map<String, String> statusUpdate) {
         try {
             String statusStr = statusUpdate.get("status");
-            if (statusStr == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
+            if (statusStr == null) return ResponseEntity.badRequest().build();
             ChinaStock.StockStatus status = ChinaStock.StockStatus.valueOf(statusStr.toUpperCase());
-            ChinaStock updatedChinaStock = chinaStockService.updateChinaStockStatus(id, status);
-            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updatedChinaStock));
+            ChinaStock updated = chinaStockService.updateChinaStockStatus(id, status);
+            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    // Batch update exchange rate for a lot
+    // ============================================
+    // ⭐ NEW: Defective Quantity Endpoints
+    // ============================================
+
+    /**
+     * เพิ่มจำนวนของเสีย (สะสม)
+     * PATCH /api/china-stocks/{id}/defective
+     * Body: { "count": 3 }
+     */
+    // ⭐ แทนที่ @PatchMapping("/{id}/defective") ใน ChinaStockController ด้วย version นี้
+
+    @PatchMapping("/{id}/defective")
+    public ResponseEntity<?> recordDefective(@PathVariable Long id,
+                                             @RequestBody Map<String, Object> body) {
+        try {
+            Object countObj = body.get("count");
+            if (countObj == null) {
+                return ResponseEntity.badRequest().body(Map.of("message", "count is required"));
+            }
+            int count = Integer.parseInt(countObj.toString());
+            if (count <= 0) {
+                return ResponseEntity.badRequest().body(Map.of("message", "count must be greater than 0"));
+            }
+            String note = body.get("note") != null ? body.get("note").toString() : null;
+            ChinaStock updated = chinaStockService.recordDefective(id, count, note);
+            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * ตั้งค่าจำนวนของเสียโดยตรง (ใช้สำหรับ edit/reset)
+     * PUT /api/china-stocks/{id}/defective
+     * Body: { "count": 5 }
+     */
+    // ⭐ แทนที่ @PutMapping("/{id}/defective") เช่นกัน (ไม่ตัดสต็อก — reset only)
+    @PutMapping("/{id}/defective")
+    public ResponseEntity<?> setDefectiveQuantity(@PathVariable Long id,
+                                                  @RequestBody Map<String, Integer> body) {
+        try {
+            Integer count = body.get("count");
+            if (count == null || count < 0) {
+                return ResponseEntity.badRequest().body(Map.of("message", "count cannot be negative"));
+            }
+            ChinaStock updated = chinaStockService.setDefectiveQuantity(id, count);
+            return ResponseEntity.ok(stockMapper.toChinaStockDTO(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    // ============================================
+    // ไม่เปลี่ยน endpoints เดิม
+    // ============================================
+
     @PatchMapping("/lot/{stockLotId}/exchange-rate")
     public ResponseEntity<List<ChinaStockDTO>> updateExchangeRateForLot(
             @PathVariable Long stockLotId,
             @RequestBody Map<String, BigDecimal> exchangeRateUpdate) {
         try {
             BigDecimal exchangeRate = exchangeRateUpdate.get("exchangeRate");
-            if (exchangeRate == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
+            if (exchangeRate == null) return ResponseEntity.badRequest().build();
             List<ChinaStock> updatedStocks = chinaStockService.updateExchangeRateForLot(stockLotId, exchangeRate);
             return ResponseEntity.ok(stockMapper.toChinaStockDTOList(updatedStocks));
         } catch (Exception e) {
@@ -131,25 +166,13 @@ public class ChinaStockController {
         }
     }
 
-    // ⭐ ลบ method นี้ออก - ไม่ใช้แล้ว
-    // @PostMapping("/lot/{stockLotId}/distribute-shipping")
-    // public ResponseEntity<List<ChinaStockDTO>> distributeShippingCosts(@PathVariable Long stockLotId) { ... }
-
-    /**
-     * ⭐ Distribute shipping costs with amount
-     * POST /api/china-stocks/lot/{stockLotId}/distribute-shipping
-     * Body: { "totalShipping": 1000.50 }
-     */
     @PostMapping("/lot/{stockLotId}/distribute-shipping")
     public ResponseEntity<List<ChinaStockDTO>> distributeShippingCostsWithAmount(
             @PathVariable Long stockLotId,
             @RequestBody Map<String, BigDecimal> shippingData) {
         try {
             BigDecimal totalShipping = shippingData.get("totalShipping");
-            if (totalShipping == null) {
-                return ResponseEntity.badRequest().build();
-            }
-
+            if (totalShipping == null) return ResponseEntity.badRequest().build();
             List<ChinaStock> updatedStocks = chinaStockService.distributeShippingCosts(stockLotId, totalShipping);
             return ResponseEntity.ok(stockMapper.toChinaStockDTOList(updatedStocks));
         } catch (Exception e) {
@@ -157,7 +180,6 @@ public class ChinaStockController {
         }
     }
 
-    // Delete China stock
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteChinaStock(@PathVariable Long id) {
         try {
@@ -167,4 +189,5 @@ public class ChinaStockController {
             return ResponseEntity.notFound().build();
         }
     }
+
 }

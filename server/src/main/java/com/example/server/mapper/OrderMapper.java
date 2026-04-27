@@ -24,6 +24,7 @@ public class OrderMapper {
         dto.setShippingAddress(order.getShippingAddress());
         dto.setOrderDate(order.getOrderDate());
         dto.setDeliveryDate(order.getDeliveryDate());
+        dto.setPaymentDate(order.getPaymentDate()); // ⭐ NEW
         dto.setTotalAmount(order.getTotalAmount());
         dto.setShippingFee(order.getShippingFee());
         dto.setDiscount(order.getDiscount());
@@ -35,6 +36,9 @@ public class OrderMapper {
         dto.setOriginalFileName(order.getOriginalFileName());
         dto.setCreatedDate(order.getCreatedDate());
         dto.setUpdatedDate(order.getUpdatedDate());
+        dto.setVatEnabled(order.getVatEnabled());
+        dto.setVatRate(order.getVatRate());
+        dto.setVatAmount(order.getVatAmount());
 
         if (order.getOrderItems() != null) {
             dto.setOrderItems(order.getOrderItems().stream()

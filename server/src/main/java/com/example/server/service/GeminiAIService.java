@@ -82,7 +82,7 @@ public class GeminiAIService {
                 กรุณาวิเคราะห์เอกสารนี้และดึงข้อมูลรายการสินค้าทั้งหมดออกมาในรูปแบบ JSON Array
                 
                 สำหรับแต่ละรายการสินค้า ให้ดึงข้อมูลดังนี้:
-                - productSku: รหัสสินค้า 6 หลัก (คอลัมน์ที่ 2)
+                - productSku: รหัสสินค้า 6-7 หลัก (คอลัมน์ที่ 2)
                 - productName: ชื่อสินค้า (ข้อความหลัง SKU 8 หลัก)
                 - quantity: ปริมาณ/จำนวนหีบ (คอลัมน์ปริมาณขนาดบรรจุ หีบ/หน่วย)
                 - unitPrice: ราคาต่อหน่วย (คอลัมน์ราคาต่อหีบ/หน่วย)
@@ -147,7 +147,7 @@ public class GeminiAIService {
             // เพิ่ม generation config
             JsonObject generationConfig = new JsonObject();
             generationConfig.addProperty("temperature", 0.1); // ต่ำเพื่อความแม่นยำ
-            generationConfig.addProperty("maxOutputTokens", 8192); // ⭐ เพิ่มเป็น 8192 สำหรับ Excel
+            generationConfig.addProperty("maxOutputTokens", 7500); // ⭐ เพิ่มเป็น 8192 สำหรับ Excel
             requestBody.add("generationConfig", generationConfig);
 
             System.out.println("📤 Sending request to Gemini API...");
@@ -260,7 +260,7 @@ public class GeminiAIService {
 
             // อ่าน Data Rows (จำกัด 20 แถวแรก เพื่อไม่ให้ข้อมูลยาวเกินไป)
             content.append("DATA:\n");
-            int maxRows = Math.min(sheet.getLastRowNum(), 20);
+            int maxRows = Math.min(sheet.getLastRowNum(), 60);
 
             for (int i = 1; i <= maxRows; i++) {
                 Row row = sheet.getRow(i);

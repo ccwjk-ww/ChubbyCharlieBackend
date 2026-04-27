@@ -3,6 +3,7 @@ package com.example.server.dto;
 import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.math.BigDecimal;
 
 @Data
 public class StockLotDTO {
@@ -10,7 +11,6 @@ public class StockLotDTO {
     private String lotName;
     private LocalDateTime importDate;
     private LocalDateTime arrivalDate;
-    // ลบ totalShippingBath field ออกแล้ว
     private String status;
     private List<StockItemDTO> items;
 
@@ -23,9 +23,26 @@ public class StockLotDTO {
         private String status;
         private String itemType; // "CHINA" or "THAI"
 
-        // Basic fields for display
+        // Basic fields
         private Integer quantity;
-        private java.math.BigDecimal totalValue;
-        private java.math.BigDecimal finalPrice;
+        private BigDecimal totalValue;
+        private BigDecimal finalPrice;
+
+        // VAT fields
+        private Boolean includeVat;
+        private BigDecimal vatPercentage;
+        private BigDecimal totalValueBeforeVat;
+        private BigDecimal vatAmount;
+        private BigDecimal totalValueWithVat;
+        private BigDecimal finalPriceWithVat;
+
+        // ChinaStock-specific fields
+        private BigDecimal totalBath;
+        private BigDecimal shippingChinaToThaiBath;
+        private BigDecimal finalPricePerPair;
+
+        // ⭐ NEW: Defective fields
+        private Integer defectiveQuantity;
+        private BigDecimal defectiveValue;
     }
 }

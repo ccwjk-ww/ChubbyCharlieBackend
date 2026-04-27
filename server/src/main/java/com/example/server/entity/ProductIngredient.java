@@ -1,8 +1,11 @@
+// ProductIngredient.java - อัปเดต Entity เดิม
 package com.example.server.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Data
@@ -27,52 +30,53 @@ public class ProductIngredient {
     private String unit;
 
     /**
-     * ⭐ CRITICAL: ใช้ ManyToOne กับ StockBase แต่ต้อง eager fetch
-     * เพื่อให้ JPA โหลด subclass ที่ถูกต้อง (ChinaStock หรือ ThaiStock)
+     * ⭐ Legacy: สำหรับกรณีใช้ Stock เดียว (Backward Compatible)
      */
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "stock_item_id")
     private StockBase stockItem;
 
     /**
-     * ✅ เพิ่ม: Cost per unit (ราคาต่อหน่วยจาก Stock)
-     * คำนวณโดย ProductCostCalculationService
+     * ⭐ NEW: การจัดสรรสต็อกหลาย Lots
      */
+    @OneToMany(mappedBy = "productIngredient", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("allocationPriority ASC")
+    private List<ProductIngredientStockAllocation> stockAllocations = new ArrayList<>();
+
+    /**
+     * ระบุว่าใช้โหมดไหน: SINGLE หรือ MULTI_LOT
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "allocation_mode", nullable = false)
+    private AllocationMode allocationMode = AllocationMode.SINGLE;
+
     @Column(precision = 10, scale = 2)
     private BigDecimal costPerUnit;
 
-    /**
-     * ✅ เพิ่ม: Total cost (ต้นทุนรวมของ ingredient นี้)
-     * = costPerUnit × requiredQuantity
-     */
     @Column(precision = 10, scale = 2)
     private BigDecimal totalCost;
 
-    /**
-     * ✅ เพิ่ม: Notes (หมายเหตุเพิ่มเติม)
-     */
     @Column(length = 500)
     private String notes;
 
-    /**
-     * ⭐ เพิ่ม: เก็บ type เพื่อความชัดเจน
-     */
     @Enumerated(EnumType.STRING)
     @Column(name = "stock_type")
     private StockType stockType;
+
+    public enum AllocationMode {
+        SINGLE,      // ใช้ stock เดียว (แบบเดิม)
+        MULTI_LOT    // ใช้หลาย lots (แบบใหม่)
+    }
 
     public enum StockType {
         CHINA,
         THAI
     }
 
-    /**
-     * ⭐ Auto-detect stock type เมื่อบันทึก
-     */
     @PrePersist
     @PreUpdate
     public void detectStockType() {
-        if (stockItem != null) {
+        if (allocationMode == AllocationMode.SINGLE && stockItem != null) {
             if (stockItem instanceof ChinaStock) {
                 this.stockType = StockType.CHINA;
             } else if (stockItem instanceof ThaiStock) {
@@ -82,13 +86,36 @@ public class ProductIngredient {
     }
 
     /**
-     * ✅ เพิ่ม: Helper method สำหรับคำนวณต้นทุน
-     * (จะถูกเรียกจาก ProductCostCalculationService)
+     * ⭐ Helper: เพิ่มการจัดสรรสต็อก
      */
-    public void calculateCost(BigDecimal unitCost) {
-        if (unitCost != null && requiredQuantity != null) {
-            this.costPerUnit = unitCost;
-            this.totalCost = unitCost.multiply(requiredQuantity);
+    public void addStockAllocation(StockBase stock, BigDecimal quantity, Integer priority, BigDecimal costPerUnit) {
+        ProductIngredientStockAllocation allocation = new ProductIngredientStockAllocation();
+        allocation.setProductIngredient(this);
+        allocation.setStockItem(stock);
+        allocation.setAllocatedQuantity(quantity);
+        allocation.setAllocationPriority(priority);
+        allocation.setCostPerUnit(costPerUnit);
+
+        this.stockAllocations.add(allocation);
+        this.allocationMode = AllocationMode.MULTI_LOT;
+    }
+
+    /**
+     * ⭐ Helper: ลบการจัดสรรทั้งหมด
+     */
+    public void clearStockAllocations() {
+        this.stockAllocations.clear();
+    }
+
+    /**
+     * ⭐ Helper: คำนวณต้นทุนรวมจากทุก allocations
+     */
+    public BigDecimal calculateTotalCostFromAllocations() {
+        if (allocationMode == AllocationMode.MULTI_LOT) {
+            return stockAllocations.stream()
+                    .map(ProductIngredientStockAllocation::getTotalCost)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
+        return totalCost != null ? totalCost : BigDecimal.ZERO;
     }
 }

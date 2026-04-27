@@ -1,5 +1,6 @@
 package com.example.server.dto;
 
+import com.example.server.dto.StockForecastDTO;
 import lombok.Data;
 
 import java.math.BigDecimal;

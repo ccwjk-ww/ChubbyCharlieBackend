@@ -3,6 +3,7 @@ package com.example.server.dto;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 public class ProductIngredientDTO {
@@ -20,5 +21,9 @@ public class ProductIngredientDTO {
     private String stockItemName;
     private String stockType; // "CHINA" or "THAI"
     private BigDecimal availableQuantity;
+
+    // ⭐ NEW: Multi-Lot fields
+    private String allocationMode; // "SINGLE" or "MULTI_LOT"
+    private List<ProductIngredientAllocationDTO> stockAllocations;
 }
 

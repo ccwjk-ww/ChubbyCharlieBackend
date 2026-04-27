@@ -3,7 +3,9 @@ package com.example.server.mapper;
 import com.example.server.dto.*;
 import com.example.server.entity.*;
 import com.example.server.respository.ProductIngredientRepository;
+import com.example.server.respository.ProductRepository;
 import com.example.server.respository.StockBaseRepository;
+import com.example.server.respository.StockLotRepository;
 import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -15,11 +17,13 @@ public class ProductMapper {
 
     private final StockBaseRepository stockBaseRepository;
     private final ProductIngredientRepository productIngredientRepository;
+    private final StockLotRepository stockLotRepository;
 
     public ProductMapper(StockBaseRepository stockBaseRepository,
-                         ProductIngredientRepository productIngredientRepository) {
+                         ProductIngredientRepository productIngredientRepository, StockLotRepository stockLotRepository) {
         this.stockBaseRepository = stockBaseRepository;
         this.productIngredientRepository = productIngredientRepository;
+        this.stockLotRepository = stockLotRepository;
     }
 
     // Product mappings
@@ -80,7 +84,6 @@ public class ProductMapper {
         ProductIngredientDTO dto = new ProductIngredientDTO();
         dto.setIngredientId(ingredient.getIngredientId());
         dto.setProductId(ingredient.getProduct() != null ? ingredient.getProduct().getProductId() : null);
-        dto.setStockItemId(ingredient.getStockItem() != null ? ingredient.getStockItem().getStockItemId() : null);
         dto.setIngredientName(ingredient.getIngredientName());
         dto.setRequiredQuantity(ingredient.getRequiredQuantity());
         dto.setUnit(ingredient.getUnit());
@@ -88,7 +91,15 @@ public class ProductMapper {
         dto.setTotalCost(ingredient.getTotalCost());
         dto.setNotes(ingredient.getNotes());
 
-        if (ingredient.getStockItem() != null) {
+        // ⭐ เพิ่ม: Map allocationMode
+        dto.setAllocationMode(ingredient.getAllocationMode() != null ?
+                ingredient.getAllocationMode().name() : "SINGLE");
+
+        // ⭐ SINGLE mode
+        if (ingredient.getAllocationMode() == ProductIngredient.AllocationMode.SINGLE &&
+                ingredient.getStockItem() != null) {
+
+            dto.setStockItemId(ingredient.getStockItem().getStockItemId());
             dto.setStockItemName(ingredient.getStockItem().getName());
             Integer quantity = ingredient.getStockItem().getQuantity();
 
@@ -101,9 +112,44 @@ public class ProductMapper {
             }
         }
 
+        // ⭐ MULTI_LOT mode - Map allocations
+        if (ingredient.getAllocationMode() == ProductIngredient.AllocationMode.MULTI_LOT &&
+                ingredient.getStockAllocations() != null && !ingredient.getStockAllocations().isEmpty()) {
+
+            List<ProductIngredientAllocationDTO> allocationDTOs = ingredient.getStockAllocations().stream()
+                    .map(this::toAllocationDTO)
+                    .collect(Collectors.toList());
+
+            dto.setStockAllocations(allocationDTOs);
+        }
+
         return dto;
     }
 
+    // ⭐ เพิ่ม method ใหม่
+    private ProductIngredientAllocationDTO toAllocationDTO(ProductIngredientStockAllocation allocation) {
+        ProductIngredientAllocationDTO dto = new ProductIngredientAllocationDTO();
+        dto.setAllocationId(allocation.getAllocationId());
+        dto.setStockItemId(allocation.getStockItem().getStockItemId());
+        dto.setStockItemName(allocation.getStockItem().getName());
+        dto.setStockType(allocation.getStockType());
+        dto.setAllocatedQuantity(allocation.getAllocatedQuantity());
+        dto.setAllocationPriority(allocation.getAllocationPriority());
+        dto.setCostPerUnit(allocation.getCostPerUnit());
+        dto.setTotalCost(allocation.getTotalCost());
+        dto.setAvailableQuantity(allocation.getStockItem().getQuantity());
+
+        // ดึงข้อมูล Lot
+        if (allocation.getStockItem().getStockLotId() != null) {
+            stockLotRepository.findById(allocation.getStockItem().getStockLotId())
+                    .ifPresent(lot -> {
+                        dto.setLotName(lot.getLotName());
+                        dto.setStockLotId(lot.getStockLotId());
+                    });
+        }
+
+        return dto;
+    }
     public ProductIngredient toProductIngredient(ProductIngredientRequestDTO request) {
         if (request == null) return null;
 
