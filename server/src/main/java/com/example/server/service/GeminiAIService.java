@@ -208,64 +208,180 @@ public class GeminiAIService {
         }
     }
 
+//    /**
+//     * ⭐ Analyze TikTok Excel using Gemini AI (TEXT ONLY)
+//     */
+//    public String analyzeTiktokExcelWithGemini(MultipartFile file) throws IOException {
+//
+//        System.out.println("========== Starting Gemini TikTok Excel Analysis ==========");
+//        System.out.println("File: " + file.getOriginalFilename());
+//        System.out.println("Size: " + file.getSize() + " bytes");
+//
+//        // 1. อ่าน Excel และแปลงเป็น Text
+//        String excelContent = convertExcelToText(file);
+//
+//        System.out.println("Excel content length: " + excelContent.length() + " characters");
+//
+//        // 2. สร้าง Prompt สำหรับ Gemini
+//        String prompt = createPromptForTiktokExcelExtraction(excelContent);
+//
+//        System.out.println("Prompt length: " + prompt.length() + " characters");
+//
+//        // 3. ⭐ เรียก Gemini API โดยไม่ส่ง image (ส่ง null)
+//        String response = callGeminiAPI(prompt, null);
+//
+//        System.out.println("========== Gemini Analysis Complete ==========");
+//
+//        return response;
+//    }
+//
+//    /**
+//     * แปลง Excel เป็น Text Content สำหรับ Gemini
+//     */
+//    private String convertExcelToText(MultipartFile file) throws IOException {
+//        StringBuilder content = new StringBuilder();
+//
+//        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+//            Sheet sheet = workbook.getSheet("Order details");
+//
+//            if (sheet == null) {
+//                sheet = workbook.getSheetAt(0);
+//            }
+//
+//            // อ่าน Header Row
+//            Row headerRow = sheet.getRow(0);
+//            if (headerRow != null) {
+//                content.append("HEADERS:\n");
+//                for (Cell cell : headerRow) {
+//                    content.append(getCellValueAsString(cell)).append("\t");
+//                }
+//                content.append("\n\n");
+//            }
+//
+//            // อ่าน Data Rows (จำกัด 20 แถวแรก เพื่อไม่ให้ข้อมูลยาวเกินไป)
+//            content.append("DATA:\n");
+//            int maxRows = Math.min(sheet.getLastRowNum(), 60);
+//
+//            for (int i = 1; i <= maxRows; i++) {
+//                Row row = sheet.getRow(i);
+//                if (row == null) continue;
+//
+//                content.append("Row ").append(i).append(": ");
+//                for (int j = 0; j < headerRow.getLastCellNum(); j++) {
+//                    Cell cell = row.getCell(j);
+//                    content.append(getCellValueAsString(cell)).append("\t");
+//                }
+//                content.append("\n");
+//            }
+//        }
+//
+//        return content.toString();
+//    }
+//
+//    /**
+//     * ⭐ สร้าง Prompt สำหรับ Gemini AI ให้วิเคราะห์ TikTok Excel (แก้ไขใหม่)
+//     */
+//    private String createPromptForTiktokExcelExtraction(String excelContent) {
+//        return """
+//        You are an expert in extracting data from TikTok Shop Excel files.
+//
+//        Analyze this Excel data and extract ALL orders with complete information in JSON format.
+//
+//        Excel Data:
+//        """ + excelContent + """
+//
+//
+//        Extract these fields for EACH order:
+//        - orderNumber: Column 0 (Order/adjustment ID) - This is the PO number
+//        - orderCreatedTime: Column 2 (Order created time)
+//        - orderSettledTime: Column 3 (Order settled time)
+//        - totalRevenue: Column 6 (Total revenue - ยอดรวมก่อนหัก)
+//        - totalFees: Column 13 (Total fees - ค่าธรรมเนียม/ส่วนลด - usually negative)
+//        - totalSettlementAmount: Column 5 (Total settlement amount - ยอดสุทธิ)
+//        - items: From Column 52 (Shopping center items) - Format: "SKU * Quantity;"
+//
+//        IMPORTANT:
+//        - Each row is ONE order (PO)
+//        - Extract ALL rows that have Order ID
+//        - totalFees is usually NEGATIVE (fees/discount)
+//        - Convert totalFees to POSITIVE for discount display
+//        - Items format: "1729997094462589879 * 3; 1829997094462589880 * 2;"
+//
+//        Output format for MULTIPLE orders:
+//        {
+//          "orders": [
+//            {
+//              "orderNumber": "580012697098291059",
+//              "orderCreatedTime": "2025-08-16 10:30:00",
+//              "orderSettledTime": "2025-08-21 14:00:00",
+//              "totalRevenue": "207.00",
+//              "totalFees": "-39.58",
+//              "totalSettlementAmount": "167.42",
+//              "items": [
+//                {
+//                  "shoppingCenterItem": "1729997094462589879 * 3",
+//                  "productName": "Product Name (optional)"
+//                }
+//              ]
+//            },
+//            {
+//              "orderNumber": "580012697098291060",
+//              "orderCreatedTime": "2025-08-16 11:00:00",
+//              "orderSettledTime": "2025-08-21 15:00:00",
+//              "totalRevenue": "300.00",
+//              "totalFees": "-50.00",
+//              "totalSettlementAmount": "250.00",
+//              "items": [
+//                {
+//                  "shoppingCenterItem": "1829997094462589880 * 2"
+//                }
+//              ]
+//            }
+//          ]
+//        }
+//
+//        For single order, use the same format but with one order in array.
+//
+//        Rules:
+//        - Dates: yyyy-MM-dd HH:mm:ss or yyyy/MM/dd
+//        - Prices: 2 decimal places, as strings
+//        - Convert negative totalFees to positive if needed
+//        - Return JSON ONLY (no markdown, no explanations)
+//        - Include ALL orders found in the Excel
+//        """;
+//    }
     /**
-     * ⭐ Analyze TikTok Excel using Gemini AI (TEXT ONLY)
+     * ⭐ NEW: Analyze TikTok Excel แบบละเอียด (สำหรับ VAT Report)
      */
-    public String analyzeTiktokExcelWithGemini(MultipartFile file) throws IOException {
-
-        System.out.println("========== Starting Gemini TikTok Excel Analysis ==========");
-        System.out.println("File: " + file.getOriginalFilename());
-        System.out.println("Size: " + file.getSize() + " bytes");
-
-        // 1. อ่าน Excel และแปลงเป็น Text
-        String excelContent = convertExcelToText(file);
-
-        System.out.println("Excel content length: " + excelContent.length() + " characters");
-
-        // 2. สร้าง Prompt สำหรับ Gemini
-        String prompt = createPromptForTiktokExcelExtraction(excelContent);
-
-        System.out.println("Prompt length: " + prompt.length() + " characters");
-
-        // 3. ⭐ เรียก Gemini API โดยไม่ส่ง image (ส่ง null)
-        String response = callGeminiAPI(prompt, null);
-
-        System.out.println("========== Gemini Analysis Complete ==========");
-
-        return response;
+    public String analyzeTiktokExcelDetailedWithGemini(MultipartFile file) throws IOException {
+        String excelContent = convertExcelToTextDetailed(file);
+        String prompt = createPromptForTiktokDetailedExtraction(excelContent);
+        return callGeminiAPI(prompt, null);
     }
 
-    /**
-     * แปลง Excel เป็น Text Content สำหรับ Gemini
-     */
-    private String convertExcelToText(MultipartFile file) throws IOException {
+    private String convertExcelToTextDetailed(MultipartFile file) throws IOException {
         StringBuilder content = new StringBuilder();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("Order details");
+            if (sheet == null) sheet = workbook.getSheetAt(0);
 
-            if (sheet == null) {
-                sheet = workbook.getSheetAt(0);
-            }
-
-            // อ่าน Header Row
             Row headerRow = sheet.getRow(0);
             if (headerRow != null) {
                 content.append("HEADERS:\n");
-                for (Cell cell : headerRow) {
-                    content.append(getCellValueAsString(cell)).append("\t");
+                for (int i = 0; i < headerRow.getLastCellNum(); i++) {
+                    Cell cell = headerRow.getCell(i);
+                    content.append("[").append(i).append("] ")
+                            .append(getCellValueAsString(cell)).append("\t");
                 }
                 content.append("\n\n");
             }
 
-            // อ่าน Data Rows (จำกัด 20 แถวแรก เพื่อไม่ให้ข้อมูลยาวเกินไป)
             content.append("DATA:\n");
-            int maxRows = Math.min(sheet.getLastRowNum(), 60);
-
+            int maxRows = Math.min(sheet.getLastRowNum(), 200);
             for (int i = 1; i <= maxRows; i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
-
                 content.append("Row ").append(i).append(": ");
                 for (int j = 0; j < headerRow.getLastCellNum(); j++) {
                     Cell cell = row.getCell(j);
@@ -274,83 +390,48 @@ public class GeminiAIService {
                 content.append("\n");
             }
         }
-
         return content.toString();
     }
 
-    /**
-     * ⭐ สร้าง Prompt สำหรับ Gemini AI ให้วิเคราะห์ TikTok Excel (แก้ไขใหม่)
-     */
-    private String createPromptForTiktokExcelExtraction(String excelContent) {
+    private String createPromptForTiktokDetailedExtraction(String excelContent) {
         return """
-        You are an expert in extracting data from TikTok Shop Excel files.
-        
-        Analyze this Excel data and extract ALL orders with complete information in JSON format.
-        
-        Excel Data:
-        """ + excelContent + """
-        
-        
-        Extract these fields for EACH order:
-        - orderNumber: Column 0 (Order/adjustment ID) - This is the PO number
-        - orderCreatedTime: Column 2 (Order created time)
-        - orderSettledTime: Column 3 (Order settled time)
-        - totalRevenue: Column 6 (Total revenue - ยอดรวมก่อนหัก)
-        - totalFees: Column 13 (Total fees - ค่าธรรมเนียม/ส่วนลด - usually negative)
-        - totalSettlementAmount: Column 5 (Total settlement amount - ยอดสุทธิ)
-        - items: From Column 52 (Shopping center items) - Format: "SKU * Quantity;"
-        
-        IMPORTANT:
-        - Each row is ONE order (PO)
-        - Extract ALL rows that have Order ID
-        - totalFees is usually NEGATIVE (fees/discount)
-        - Convert totalFees to POSITIVE for discount display
-        - Items format: "1729997094462589879 * 3; 1829997094462589880 * 2;"
-        
-        Output format for MULTIPLE orders:
+    You are an expert in reading TikTok Shop Excel files.
+    
+    From the Excel data below, extract ALL order rows with these EXACT columns:
+    - Order ID (Column "Order/adjustment ID")
+    - SKU ID (Column "SKU ID" or "Shopping center items")
+    - Product Name (Column "Product Name" or extract from items)
+    - Quantity (Column "Quantity")
+    - SKU Unit Original Price (Column "SKU Unit Original Price" or "Unit Price")
+    - SKU Subtotal Before Discount (Column "SKU Subtotal Before Discount" or "Subtotal")
+    - SKU Seller Discount (Column "SKU Seller Discount" or "Seller Discount")
+    - Shipping Fee After Discount (Column "Shipping Fee After Discount" or "Shipping Fee")
+    
+    Excel Data:
+    """ + excelContent + """
+    
+    Return JSON ONLY:
+    {
+      "rows": [
         {
-          "orders": [
-            {
-              "orderNumber": "580012697098291059",
-              "orderCreatedTime": "2025-08-16 10:30:00",
-              "orderSettledTime": "2025-08-21 14:00:00",
-              "totalRevenue": "207.00",
-              "totalFees": "-39.58",
-              "totalSettlementAmount": "167.42",
-              "items": [
-                {
-                  "shoppingCenterItem": "1729997094462589879 * 3",
-                  "productName": "Product Name (optional)"
-                }
-              ]
-            },
-            {
-              "orderNumber": "580012697098291060",
-              "orderCreatedTime": "2025-08-16 11:00:00",
-              "orderSettledTime": "2025-08-21 15:00:00",
-              "totalRevenue": "300.00",
-              "totalFees": "-50.00",
-              "totalSettlementAmount": "250.00",
-              "items": [
-                {
-                  "shoppingCenterItem": "1829997094462589880 * 2"
-                }
-              ]
-            }
-          ]
+          "orderId": "580012697098291059",
+          "skuId": "1729997094462589879",
+          "productName": "Product Name Here",
+          "quantity": 3,
+          "skuUnitOriginalPrice": "69.00",
+          "skuSubtotalBeforeDiscount": "207.00",
+          "skuSellerDiscount": "0.00",
+          "shippingFeeAfterDiscount": "0.00"
         }
-        
-        For single order, use the same format but with one order in array.
-        
-        Rules:
-        - Dates: yyyy-MM-dd HH:mm:ss or yyyy/MM/dd
-        - Prices: 2 decimal places, as strings
-        - Convert negative totalFees to positive if needed
-        - Return JSON ONLY (no markdown, no explanations)
-        - Include ALL orders found in the Excel
-        """;
+      ]
     }
-
+    
+    Rules:
+    - Extract ALL rows with Order ID
+    - Use 2 decimal places for all prices
+    - Return JSON ONLY, no markdown, no explanation
+    """;
+    }
     /**
      * Get Cell value as String
      */

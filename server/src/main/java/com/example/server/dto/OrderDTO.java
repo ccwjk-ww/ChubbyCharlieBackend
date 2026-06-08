@@ -32,4 +32,6 @@ public class OrderDTO {
     private Boolean vatEnabled;
     private BigDecimal vatRate;
     private BigDecimal vatAmount;
+    private BigDecimal totalCost;   // ต้นทุนรวมของ PO
+    private BigDecimal profit;      // กำไรของ PO
 }

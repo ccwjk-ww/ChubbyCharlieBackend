@@ -38,7 +38,7 @@ public class GeminiTiktokExcelParserService {
             throws IOException {
 
         // 1. ส่งไปให้ Gemini AI วิเคราะห์
-        String geminiResponse = geminiAIService.analyzeTiktokExcelWithGemini(file);
+        String geminiResponse = geminiAIService.analyzeTiktokExcelDetailedWithGemini(file);
 
         // 2. Parse JSON response from Gemini
         List<Order> orders = parseOrdersFromGeminiJSON(geminiResponse, customerId, customerName);
@@ -222,7 +222,7 @@ public class GeminiTiktokExcelParserService {
      * ⭐ Preview TikTok Excel - หลาย Orders
      */
     public Map<String, Object> parseAndPreviewWithGemini(MultipartFile file) throws IOException {
-        String geminiResponse = geminiAIService.analyzeTiktokExcelWithGemini(file);
+        String geminiResponse = geminiAIService.analyzeTiktokExcelDetailedWithGemini(file);
 
         Map<String, Object> preview = new HashMap<>();
 

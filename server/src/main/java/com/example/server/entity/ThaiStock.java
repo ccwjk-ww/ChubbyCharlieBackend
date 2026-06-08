@@ -87,16 +87,20 @@ public class ThaiStock extends StockBase {
     }
 
     // ============================================
-    // calculateFinalPrice() — ราคา/หน่วย ก่อน VAT
-    // ============================================
+// ⭐ แก้: calculateFinalPrice ใช้ originalQuantity
+// ============================================
     @Override
     public BigDecimal calculateFinalPrice() {
         if (unitCostAtImport != null && unitCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
             return unitCostAtImport;
         }
-        if (getQuantity() == null || getQuantity() == 0) return BigDecimal.ZERO;
+        // ⭐ ใช้ originalQuantity เพื่อให้ราคา/หน่วยไม่เปลี่ยนแปลงเมื่อตัดสต็อก
+        int qty = (originalQuantity != null && originalQuantity > 0)
+                ? originalQuantity
+                : (getQuantity() != null ? getQuantity() : 0);
+        if (qty == 0) return BigDecimal.ZERO;
         BigDecimal grandTotal = calculateTotalCost();
-        return grandTotal.divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+        return grandTotal.divide(BigDecimal.valueOf(qty), 3, RoundingMode.HALF_UP);
     }
 
     // ============================================
@@ -137,13 +141,13 @@ public class ThaiStock extends StockBase {
         return baseUnit.multiply(vatMultiplier).setScale(3, RoundingMode.HALF_UP);
     }
 
-    // ============================================
-    // Price calculation helpers
-    // ============================================
-
+    // ⭐ แก้: ใช้ originalQuantity ในการคำนวณราคา/หน่วย
     public BigDecimal calculatePricePerUnit() {
-        if (priceTotal != null && getQuantity() != null && getQuantity() > 0) {
-            this.pricePerUnit = priceTotal.divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+        int qty = (originalQuantity != null && originalQuantity > 0)
+                ? originalQuantity
+                : (getQuantity() != null ? getQuantity() : 0);
+        if (priceTotal != null && qty > 0) {
+            this.pricePerUnit = priceTotal.divide(BigDecimal.valueOf(qty), 3, RoundingMode.HALF_UP);
         }
         return this.pricePerUnit;
     }
@@ -154,17 +158,27 @@ public class ThaiStock extends StockBase {
     }
 
     // ============================================
-    // @PrePersist @PreUpdate
-    // ============================================
+// @PrePersist @PreUpdate — ⭐ แก้: lock unitCostAtImport และ totalCostAtImport
+// ============================================
     @PrePersist
     @PreUpdate
     public void calculateFields() {
         calculatePricePerUnit();
         calculatePricePerUnitWithShipping();
 
-        if (originalQuantity == null && getQuantity() != null) originalQuantity = getQuantity();
-        if (unitCostAtImport == null) unitCostAtImport = calculateFinalPrice();
-        if (totalCostAtImport == null) totalCostAtImport = calculateTotalCost();
+        // ⭐ originalQuantity: set ครั้งแรกเท่านั้น
+        if (originalQuantity == null && getQuantity() != null) {
+            originalQuantity = getQuantity();
+        }
+
+        // ⭐ lock unitCostAtImport และ totalCostAtImport ไว้ครั้งแรก ไม่ recalculate
+        if (unitCostAtImport == null) {
+            unitCostAtImport = calculateFinalPrice();
+        }
+        if (totalCostAtImport == null) {
+            totalCostAtImport = calculateTotalCost();
+        }
+
         if (getDefectiveQuantity() == null) setDefectiveQuantity(0);
     }
 }

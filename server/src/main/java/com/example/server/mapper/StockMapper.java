@@ -44,7 +44,7 @@ public class StockMapper {
             ChinaStock china = (ChinaStock) stockBase;
             dto.setItemType("CHINA");
             dto.setQuantity(china.getCurrentQuantity());
-
+            dto.setOriginalQuantity(china.getOriginalQuantity()); // ⭐ เพิ่มบรรทัดนี้
             dto.setIncludeVat(china.getIncludeVat());
             dto.setVatPercentage(china.getVatPercentage());
 
@@ -75,7 +75,7 @@ public class StockMapper {
             ThaiStock thai = (ThaiStock) stockBase;
             dto.setItemType("THAI");
             dto.setQuantity(thai.getCurrentQuantity());
-
+            dto.setOriginalQuantity(thai.getOriginalQuantity()); // ⭐ เพิ่มบรรทัดนี้
             dto.setIncludeVat(thai.getIncludeVat());
             dto.setVatPercentage(thai.getVatPercentage());
 

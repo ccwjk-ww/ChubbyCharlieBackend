@@ -102,16 +102,20 @@ public class ChinaStock extends StockBase {
     }
 
     // ============================================
-    // calculateFinalPrice() — ราคา/หน่วย ก่อน VAT
-    // ============================================
+// ⭐ แก้: calculateFinalPrice ใช้ originalQuantity
+// ============================================
     @Override
     public BigDecimal calculateFinalPrice() {
         if (unitCostAtImport != null && unitCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
             return unitCostAtImport;
         }
-        if (getQuantity() == null || getQuantity() == 0) return BigDecimal.ZERO;
+        // ⭐ ใช้ originalQuantity เพื่อให้ราคา/หน่วยไม่เปลี่ยนแปลงเมื่อตัดสต็อก
+        int qty = (originalQuantity != null && originalQuantity > 0)
+                ? originalQuantity
+                : (getQuantity() != null ? getQuantity() : 0);
+        if (qty == 0) return BigDecimal.ZERO;
         return calculateTotalCostBeforeVat()
-                .divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(qty), 3, RoundingMode.HALF_UP);
     }
 
     /**
@@ -164,15 +168,30 @@ public class ChinaStock extends StockBase {
     // Calculation helpers
     // ============================================
 
+    // ============================================
+// ⭐ แก้: ใช้ originalQuantity ใน calculateTotalValueYuan
+// ============================================
     public BigDecimal calculateTotalValueYuan() {
-        if (unitPriceYuan != null && getQuantity() != null) {
-            this.totalValueYuan = unitPriceYuan.multiply(BigDecimal.valueOf(getQuantity()))
+        // ถ้า lock แล้ว ไม่ recalculate
+        if (totalCostAtImport != null && totalCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return this.totalValueYuan;
+        }
+        // ⭐ ใช้ originalQuantity ถ้ามี มิฉะนั้นใช้ quantity ปัจจุบัน (ครั้งแรกที่สร้าง)
+        int qty = (originalQuantity != null && originalQuantity > 0)
+                ? originalQuantity
+                : (getQuantity() != null ? getQuantity() : 0);
+        if (unitPriceYuan != null && qty > 0) {
+            this.totalValueYuan = unitPriceYuan.multiply(BigDecimal.valueOf(qty))
                     .setScale(3, RoundingMode.HALF_UP);
         }
         return this.totalValueYuan;
     }
 
     public BigDecimal calculateTotalYuan() {
+        // ถ้า lock แล้ว ไม่ recalculate
+        if (totalCostAtImport != null && totalCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return this.totalYuan;
+        }
         if (totalValueYuan != null && shippingWithinChinaYuan != null) {
             this.totalYuan = totalValueYuan.add(shippingWithinChinaYuan).setScale(3, RoundingMode.HALF_UP);
         }
@@ -180,6 +199,10 @@ public class ChinaStock extends StockBase {
     }
 
     public BigDecimal calculateTotalBath() {
+        // ถ้า lock แล้ว ไม่ recalculate
+        if (totalCostAtImport != null && totalCostAtImport.compareTo(BigDecimal.ZERO) > 0) {
+            return this.totalBath;
+        }
         if (totalYuan != null && exchangeRate != null) {
             BigDecimal total = totalYuan.multiply(exchangeRate);
             if (shippingChinaToThaiBath != null) total = total.add(shippingChinaToThaiBath);
@@ -188,9 +211,16 @@ public class ChinaStock extends StockBase {
         return this.totalBath;
     }
 
+    // ============================================
+// ⭐ แก้: calculatePricePerUnitBath ใช้ originalQuantity
+// ============================================
     public BigDecimal calculatePricePerUnitBath() {
-        if (totalBath != null && getQuantity() != null && getQuantity() > 0) {
-            this.pricePerUnitBath = totalBath.divide(BigDecimal.valueOf(getQuantity()), 3, RoundingMode.HALF_UP);
+        // ⭐ ใช้ originalQuantity แทน quantity เพื่อให้ราคา/หน่วยถูกต้องเสมอ
+        int qty = (originalQuantity != null && originalQuantity > 0)
+                ? originalQuantity
+                : (getQuantity() != null ? getQuantity() : 0);
+        if (totalBath != null && qty > 0) {
+            this.pricePerUnitBath = totalBath.divide(BigDecimal.valueOf(qty), 3, RoundingMode.HALF_UP);
         }
         return this.pricePerUnitBath;
     }
@@ -204,9 +234,10 @@ public class ChinaStock extends StockBase {
     public BigDecimal getFinalPricePerPair() { return this.finalPricePerPair; }
     public BigDecimal getAvgShippingPerPair() { return calculateAvgShippingPerPair(); }
 
+
     // ============================================
-    // @PrePersist @PreUpdate
-    // ============================================
+// @PrePersist @PreUpdate — ⭐ แก้: lock unitCostAtImport และ totalCostAtImport
+// ============================================
     @PrePersist
     @PreUpdate
     public void calculateFields() {
@@ -214,11 +245,23 @@ public class ChinaStock extends StockBase {
         calculateTotalYuan();
         calculateTotalBath();
         calculatePricePerUnitBath();
-        this.finalPricePerPair = calculateFinalPrice();
 
-        if (originalQuantity == null && getQuantity() != null) originalQuantity = getQuantity();
-        if (unitCostAtImport == null) unitCostAtImport = calculateFinalPrice();
-        if (totalCostAtImport == null) totalCostAtImport = calculateTotalCost();
+        // ⭐ originalQuantity: set ครั้งแรกเท่านั้น ไม่ update ภายหลัง
+        if (originalQuantity == null && getQuantity() != null) {
+            originalQuantity = getQuantity();
+        }
+
+        // ⭐ unitCostAtImport และ totalCostAtImport: lock ไว้ครั้งแรก ไม่ recalculate
+        // เพราะถ้า recalculate จะใช้ quantity ปัจจุบัน (ที่ถูกตัดไปแล้ว) ทำให้ผิดพลาด
+        if (unitCostAtImport == null) {
+            unitCostAtImport = calculateFinalPrice();
+        }
+        if (totalCostAtImport == null) {
+            totalCostAtImport = calculateTotalCost();
+        }
+
+        this.finalPricePerPair = getAverageCostPerUnit(); // ⭐ ใช้ unitCostAtImport ที่ lock ไว้
+
         if (getDefectiveQuantity() == null) setDefectiveQuantity(0);
     }
 }

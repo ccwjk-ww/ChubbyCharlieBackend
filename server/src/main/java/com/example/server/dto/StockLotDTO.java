@@ -22,7 +22,7 @@ public class StockLotDTO {
         private String shopURL;
         private String status;
         private String itemType; // "CHINA" or "THAI"
-
+        private Integer originalQuantity;
         // Basic fields
         private Integer quantity;
         private BigDecimal totalValue;

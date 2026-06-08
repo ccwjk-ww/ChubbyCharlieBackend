@@ -5,6 +5,8 @@ import com.example.server.dto.OrderItemDTO;
 import com.example.server.entity.Order;
 import com.example.server.entity.OrderItem;
 import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,19 @@ public class OrderMapper {
         dto.setVatEnabled(order.getVatEnabled());
         dto.setVatRate(order.getVatRate());
         dto.setVatAmount(order.getVatAmount());
+        // ⭐ เพิ่ม: คำนวณต้นทุนและกำไรรวมของ PO
+        if (order.getOrderItems() != null && !order.getOrderItems().isEmpty()) {
+            BigDecimal totalCost = order.getOrderItems().stream()
+                    .map(item -> item.getTotalCost() != null ? item.getTotalCost() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            dto.setTotalCost(totalCost);
+
+            BigDecimal netAmount = order.getNetAmount() != null ? order.getNetAmount() : BigDecimal.ZERO;
+            dto.setProfit(netAmount.subtract(totalCost));
+        } else {
+            dto.setTotalCost(BigDecimal.ZERO);
+            dto.setProfit(BigDecimal.ZERO);
+        }
 
         if (order.getOrderItems() != null) {
             dto.setOrderItems(order.getOrderItems().stream()

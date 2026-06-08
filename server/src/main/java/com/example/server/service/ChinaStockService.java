@@ -168,19 +168,36 @@ public class ChinaStockService {
         return chinaStockRepository.saveAll(stocks);
     }
 
+    // ✅ โค้ดที่ถูกต้อง — ใช้ originalQuantity
     public List<ChinaStock> distributeShippingCosts(Long stockLotId, BigDecimal totalShipping) {
         List<ChinaStock> stocks = getChinaStocksByLot(stockLotId);
         if (totalShipping != null && totalShipping.compareTo(BigDecimal.ZERO) > 0) {
+
+            // ⭐ ใช้ originalQuantity เพื่อคำนวณสัดส่วน shipping ที่ถูกต้อง
             int totalQuantity = stocks.stream()
-                    .mapToInt(s -> s.getQuantity() != null ? s.getQuantity() : 0)
+                    .mapToInt(s -> s.getOriginalQuantity() != null && s.getOriginalQuantity() > 0
+                            ? s.getOriginalQuantity()
+                            : (s.getQuantity() != null ? s.getQuantity() : 0))
                     .sum();
+
             if (totalQuantity > 0) {
                 stocks.forEach(stock -> {
-                    if (stock.getQuantity() != null && stock.getQuantity() > 0) {
+                    // ⭐ ใช้ originalQuantity ในการคำนวณสัดส่วน
+                    int qty = (stock.getOriginalQuantity() != null && stock.getOriginalQuantity() > 0)
+                            ? stock.getOriginalQuantity()
+                            : (stock.getQuantity() != null ? stock.getQuantity() : 0);
+
+                    if (qty > 0) {
                         BigDecimal stockShippingPortion = totalShipping
-                                .multiply(BigDecimal.valueOf(stock.getQuantity()))
+                                .multiply(BigDecimal.valueOf(qty))
                                 .divide(BigDecimal.valueOf(totalQuantity), 3, RoundingMode.HALF_UP);
                         stock.setShippingChinaToThaiBath(stockShippingPortion);
+
+                        // ⭐ reset unitCostAtImport และ totalCostAtImport
+                        // เพื่อให้ calculateFields() คำนวณใหม่จาก totalBath ที่อัพเดทแล้ว
+                        stock.setUnitCostAtImport(null);
+                        stock.setTotalCostAtImport(null);
+
                         stock.calculateFields();
                     }
                 });
